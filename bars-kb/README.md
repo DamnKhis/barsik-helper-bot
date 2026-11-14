@@ -11,7 +11,8 @@
 - чанкинг parent/child с breadcrumb;
 - типы чанков: `text`, `faq`, `table`, `diagram`, `screenshot`;
 - FAQ-слой по ключевым тест-кейсам (только из текста документов);
-- эмбеддинги: hash-lexical для работы без ключей, Qwen `text-embedding-v4` при наличии ключа;
+- эмбеддинги: hash-lexical для работы без ключей, Qwen `text-embedding-v4` при наличии ключа
+  (**согласованная модель для финальной сборки: dim 1024**);
 - Qdrant: dense + sparse BM25, alias `bars_kb_current`;
 - экспорт `chunks.jsonl.gz` с векторами, `documents.jsonl`, `manifest.json`, `images/`;
 - переэмбеддинг готового экспорта чужой моделью (`examples/reembed_from_export.py`);
