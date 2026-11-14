@@ -1,4 +1,4 @@
-API
+# API
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic>=2.7
@@ -16,5 +16,4 @@ asyncpg>=0.29
 
 # Redis (контекст диалога)
 redis>=5.0
-
 

@@ -1,16 +1,3 @@
-<<<<<<< HEAD
-"""SQLite-слой данных RAG-бота «БАРС-Офис»: лог запросов + лог реиндексаций.
-
-Итоговая схема (договорились: без колонки intent, гейт-классификатор не делаем;
-нерелевантные вопросы видны как outcome='not_found' — отдельная метрика не нужна).
-
-Кто что делает:
-  - бот после каждого ответа вызывает log_request(...), на кнопки 👍/👎 — set_rating(...);
-  - эндпоинт GET /stats читает таблицу requests своими SQL-агрегациями;
-  - git-интеграция (webhook/poller) пишет реиндексации через log_reindex(...).
-
-Путь к файлу БД задаётся переменной окружения DB_PATH (добавить в .env.example).
-=======
 """Слой данных бота «БАРС-Офис».
 
 Здесь живут две независимые части:
@@ -23,17 +10,12 @@
 
 Подключение к SQLAlchemy-части задаётся DATABASE_URL.
 Путь к SQLite-логу метрик задаётся DB_PATH.
->>>>>>> origin/tg-bot
 """
 from __future__ import annotations
 
 import logging
 import os
 import sqlite3
-<<<<<<< HEAD
-from pathlib import Path
-
-=======
 from datetime import datetime
 from pathlib import Path
 
@@ -53,7 +35,6 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.config import settings
 
->>>>>>> origin/tg-bot
 logger = logging.getLogger(__name__)
 
 OUTCOMES = ("answered", "not_found", "escalated")
@@ -191,8 +172,6 @@ if __name__ == "__main__":
     print("слепые зоны:", [r[0] for r in blind])
     conn.close()
     print("OK: смоук-тест прошёл")
-<<<<<<< HEAD
-=======
 
 
 # ---------------------------------------------------------------------------
@@ -394,4 +373,3 @@ async def close_ticket(
         .values(answer=answer, answered_by="manager", ticket_status="closed")
     )
     return result.rowcount > 0
->>>>>>> origin/tg-bot
