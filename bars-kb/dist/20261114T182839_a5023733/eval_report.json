@@ -1,0 +1,506 @@
+{
+  "generated_at": "2026-11-14T20:38:00.621797+00:00",
+  "build_id": "20261114T182839_a5023733",
+  "collection": "bars_kb_20261114T182839_a5023733",
+  "questions": 13,
+  "hit@1": 0.8462,
+  "hit@3": 0.9231,
+  "hit@5": 0.9231,
+  "mrr": 0.8718,
+  "rows": [
+    {
+      "id": "tc01",
+      "question": "Как выглядит интерфейс БО? Где найти в нём производственный календарь?",
+      "type": "visual",
+      "expected_doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "2e3cffff-7911-5f2f-a48d-1a56ee9cb8d5",
+          "score": 0.67635,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "1 Начало работы в БАРС-Офис",
+            "1.1 Главное меню",
+            "1.1.1 Панель быстрого доступа"
+          ],
+          "chunk_type": "screenshot"
+        },
+        {
+          "chunk_id": "d0a828f3-3c3b-5f49-944c-a62dcdaab24b",
+          "score": 0.67527,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "1 Начало работы в БАРС-Офис",
+            "1.1 Главное меню",
+            "1.1.3 Производственный календарь"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "4d0b313a-6297-5107-9715-b719a9963de1",
+          "score": 0.58269,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "Функциональные возможности"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc02",
+      "question": "Как работает фильтр документа? Опиши шаги настройки фильтра.",
+      "type": "text",
+      "expected_doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "0a0b1499-e25a-5eec-a24b-e60be9c0fa88",
+          "score": 0.65521,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.1 Инструменты поиска данных",
+            "2.1.1 Редактор фильтров"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "5135f8b5-8a8d-5d75-950b-f5588c0ab81e",
+          "score": 0.61131,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.1 Инструменты поиска данных",
+            "2.1.1 Редактор фильтров"
+          ],
+          "chunk_type": "screenshot"
+        },
+        {
+          "chunk_id": "8f7bdc40-c51d-567c-877a-8dda940d546e",
+          "score": 0.63738,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.1 Инструменты поиска данных",
+            "2.1.1 Редактор фильтров"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc03",
+      "question": "Почему не работает фильтр в БО «!> 200»?",
+      "type": "trick",
+      "expected_doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "2e84f5e7-0062-5c7b-8f33-246a8ea6c5d8",
+          "score": 0.84362,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.1 Инструменты поиска данных",
+            "2.1.2 Фильтрация по столбцам"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "8f7bdc40-c51d-567c-877a-8dda940d546e",
+          "score": 0.68738,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.1 Инструменты поиска данных",
+            "2.1.1 Редактор фильтров"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "0a0b1499-e25a-5eec-a24b-e60be9c0fa88",
+          "score": 0.67566,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.1 Инструменты поиска данных",
+            "2.1.1 Редактор фильтров"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc04",
+      "question": "Мне прислали ссылку https://bo.bars.group//#mainmenuitemclick&bars_office&byudjeetsdelki&id&=&6DF3B1B8B2F249368E5F9749C10CD2AC — что с ней делать?",
+      "type": "text",
+      "expected_doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+      "rank": 3,
+      "top": [
+        {
+          "chunk_id": "be864bc5-871c-5359-99a9-be4c66dffa8b",
+          "score": 0.63796,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.4 Дополнительные возможности",
+            "2.4.6 Оповещение при ошибках UI"
+          ],
+          "chunk_type": "screenshot"
+        },
+        {
+          "chunk_id": "05c49b8a-0f6d-5c70-885e-7a66e4fe883b",
+          "score": 0.59854,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "1 Начало работы в БАРС-Офис",
+            "1.1 Главное меню",
+            "1.1.2 Местное время"
+          ],
+          "chunk_type": "screenshot"
+        },
+        {
+          "chunk_id": "833e5a7d-d5fb-5ae2-8e1a-3b9017824f1c",
+          "score": 0.71209,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.4 Дополнительные возможности",
+            "2.4.5 Ссылки на документ"
+          ],
+          "chunk_type": "faq"
+        }
+      ]
+    },
+    {
+      "id": "tc05",
+      "question": "Кто согласовывает БП Командировки?",
+      "type": "text",
+      "expected_doc_id": "bp-komandirovka",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "6610fcb9-383f-5b69-bbe1-15fd87e659fe",
+          "score": 0.80305,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "8b2c3862-891f-5f9e-b270-99024df2cb57",
+          "score": 0.61614,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "2 Схема бизнес-процесса"
+          ],
+          "chunk_type": "diagram"
+        },
+        {
+          "chunk_id": "2b497da5-3d1c-5e3e-aab2-12fe11121ed3",
+          "score": 0.6116,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc06",
+      "question": "Мне не отвечает офис-менеджер, какой у него график работы?",
+      "type": "text",
+      "expected_doc_id": "bp-komandirovka",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "ffb75d5f-e5d7-58de-9e7b-9d3eccb0f24c",
+          "score": 0.58854,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "1 Содержание"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "7f413f88-f2f9-50a1-bb12-0736c75dd997",
+          "score": 0.48292,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "1 Содержание"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "14ed147e-3ea4-51d1-975c-f9f5d4961287",
+          "score": 0.4369,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "1 Доступ к функционалу"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc07",
+      "question": "Почему не могу выбрать сделку 2334-26, у которой статус воронки 30%, в поле «Номер пресейла»?",
+      "type": "trick",
+      "expected_doc_id": "bp-komandirovka",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "5c74a4f9-8141-53b2-b923-4fa4a997e962",
+          "score": 0.71812,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "62903d4c-d24f-582f-affd-86bc4599627a",
+          "score": 0.48852,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "66b837a8-84f5-5d66-bb13-eb1a881bc0a5",
+          "score": 0.51413,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc08",
+      "question": "Смогу ли я запустить БП Командировка, если не заложил средств в бюджет сделки?",
+      "type": "trick",
+      "expected_doc_id": "bp-komandirovka",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "47a478d3-e29f-54e6-be7d-a81c21bac2fc",
+          "score": 0.83523,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "62903d4c-d24f-582f-affd-86bc4599627a",
+          "score": 0.66368,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "6bda7979-4da5-525c-afc7-b02a899a9621",
+          "score": 0.67495,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc09",
+      "question": "Какие могут быть условия в выборе следующего согласующего лица БП Командировка?",
+      "type": "text",
+      "expected_doc_id": "bp-komandirovka",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "71b9b2d2-df47-577d-b106-8c26d5cefb92",
+          "score": 0.86086,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "5 Инструкция"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "06d63593-4eba-555c-b0ef-acdf412b1538",
+          "score": 0.58602,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "6 Дополнительная информация"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "08f8c45a-d326-53b5-aa69-92e3cb2e8729",
+          "score": 0.56254,
+          "doc_id": "bp-komandirovka",
+          "section": [
+            "6 Дополнительная информация"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc10",
+      "question": "Какие функциональные кнопки есть в реестре мебели? Как они выглядят?",
+      "type": "visual",
+      "expected_doc_id": "reestr-mebeli",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "53798836-8a23-5577-9534-eaaf77a56c2e",
+          "score": 0.66593,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "3 Описание",
+            "3.2 II. Функции документа"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "418d6376-af3a-5699-ae73-82098afbe00e",
+          "score": 0.58751,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "Реестр мебели"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "af203303-f758-545f-bc93-6fd3f724d772",
+          "score": 0.55394,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "3 Описание",
+            "3.2 II. Функции документа"
+          ],
+          "chunk_type": "screenshot"
+        }
+      ]
+    },
+    {
+      "id": "tc11",
+      "question": "Опиши поэтапно, как в БО добавить запись в реестр мебели.",
+      "type": "text",
+      "expected_doc_id": "reestr-mebeli",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "433a8919-d7b4-5f60-8d43-5e0b43f1daea",
+          "score": 0.82971,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "6 Инструкция работы с функционалом"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "af203303-f758-545f-bc93-6fd3f724d772",
+          "score": 0.72911,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "3 Описание",
+            "3.2 II. Функции документа"
+          ],
+          "chunk_type": "screenshot"
+        },
+        {
+          "chunk_id": "ba4df855-7ac8-5e23-a183-1fc04b9b1565",
+          "score": 0.80714,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "4 Список полей"
+          ],
+          "chunk_type": "faq"
+        }
+      ]
+    },
+    {
+      "id": "tc12",
+      "question": "Какие статусы мебели перечислены в реестре мебели?",
+      "type": "text",
+      "expected_doc_id": "reestr-mebeli",
+      "rank": null,
+      "top": [
+        {
+          "chunk_id": "25762b1d-de6b-5d92-9154-b8b084093d93",
+          "score": 0.71634,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "6 Инструкция работы с функционалом"
+          ],
+          "chunk_type": "screenshot"
+        },
+        {
+          "chunk_id": "418d6376-af3a-5699-ae73-82098afbe00e",
+          "score": 0.64904,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "Реестр мебели"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "ce5fe4fc-2564-518e-87b6-ef764ea37052",
+          "score": 0.65971,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "2 Список классификаторов/справочников"
+          ],
+          "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "tc13",
+      "question": "Где найти реестр техники?",
+      "type": "trick",
+      "expected_doc_id": "reestr-mebeli",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "ba4df855-7ac8-5e23-a183-1fc04b9b1565",
+          "score": 0.66847,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "4 Список полей"
+          ],
+          "chunk_type": "faq"
+        },
+        {
+          "chunk_id": "418d6376-af3a-5699-ae73-82098afbe00e",
+          "score": 0.55722,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "Реестр мебели"
+          ],
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "af203303-f758-545f-bc93-6fd3f724d772",
+          "score": 0.52793,
+          "doc_id": "reestr-mebeli",
+          "section": [
+            "3 Описание",
+            "3.2 II. Функции документа"
+          ],
+          "chunk_type": "screenshot"
+        }
+      ]
+    }
+  ]
+}
