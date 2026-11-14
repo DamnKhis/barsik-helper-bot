@@ -146,7 +146,8 @@ KB_EXPORT_DIR=bars-kb/dist
 ```
 
 `examples/kb_client.py`, `examples/restore_from_export.py` и `Retriever` читают
-`LATEST` сами. В `dist/` по умолчанию хранятся две сборки: текущая и предыдущая.
+`LATEST` сами. В `dist/` по умолчанию хранятся две сборки: текущая и предыдущая
+(предыдущая появляется после первой пересборки).
 
 ### Локально
 
