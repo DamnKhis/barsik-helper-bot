@@ -165,7 +165,8 @@ bars-kb sync --publish    # пересобрать + commit/push dist/
 ### GitHub
 
 ```bash
-# .env: GITHUB_REPO=owner/repo, GITHUB_TOKEN=..., GITHUB_DOCS_PATH=docs/source
+# .env: GITHUB_REPO=owner/repo, GITHUB_TOKEN=...,
+# GITHUB_DOCS_PATH=bars-kb/docs/source (путь от корня репозитория)
 bars-kb sync --github
 ```
 
