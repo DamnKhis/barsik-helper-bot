@@ -31,7 +31,7 @@ if str(EXAMPLES_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLES_DIR))
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-KB_EXPORT_DIR = Path(os.getenv("KB_EXPORT_DIR", "bars-kb/dist/20261114T182839_a5023733"))
+KB_EXPORT_DIR = Path(os.getenv("KB_EXPORT_DIR", "bars-kb/dist"))
 if not KB_EXPORT_DIR.is_absolute():
     KB_EXPORT_DIR = PROJECT_ROOT / KB_EXPORT_DIR
 
@@ -217,7 +217,7 @@ class Retriever:
         for p in payloads:
             img_rel = p.get("image_path")
             if img_rel:
-                full_path = str(KB_EXPORT_DIR / img_rel)
+                full_path = str((self.kb.export_dir if self.kb else KB_EXPORT_DIR) / img_rel)
                 if os.path.exists(full_path) and full_path not in images:
                     images.append(full_path)
             for old_img in p.get("image_paths", []):

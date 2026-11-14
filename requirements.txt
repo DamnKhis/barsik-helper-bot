@@ -25,3 +25,4 @@ apscheduler>=3.10
 # Dev
 pytest>=8.0
 ruff>=0.6
+openai==3.51.0
