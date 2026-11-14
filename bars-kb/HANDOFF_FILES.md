@@ -7,6 +7,15 @@
 В `dist/` хранятся текущая и предыдущая сборки; имя папки меняется при пересборке,
 поэтому ссылайтесь на `dist/LATEST` или на базовую папку `dist`.
 
+```bash
+cat dist/LATEST        # build_id текущей сборки
+bars-kb builds         # список; * — актуальная
+bars-kb rollback       # переключить LATEST на предыдущую сборку
+```
+
+Пока в `dist/` одна сборка, откатываться некуда: предыдущая появится после
+первой пересборки при изменении документов.
+
 Модели: **Qwen3.8-Flash** (`qwen/qwen3.8-flash`) — текст, JSON, таблицы и скриншоты;
 **Qwen `qwen/qwen3-embedding-8b`** (dim 1024) — dense-векторы. Один `QWEN_API_KEY`
 OpenRouter (для DashScope — `qwen3.8-flash` и `text-embedding-v4`).

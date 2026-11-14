@@ -152,7 +152,8 @@ KB_EXPORT_DIR=bars-kb/dist
 ```
 
 `examples/kb_client.py`, `examples/restore_from_export.py` и `Retriever` сами
-читают `LATEST`. Захардкоженный `dist/2026...` не нужен.
+читают `LATEST`. Захардкоженный `dist/2026...` не нужен. После первой пересборки
+в `dist/` остаются текущая и предыдущая сборки.
 
 ### Локально
 
