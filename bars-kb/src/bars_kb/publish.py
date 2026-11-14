@@ -32,6 +32,24 @@ def repo_root(path: Path) -> Path:
     return Path(result.stdout.strip())
 
 
+def current_branch(root: Path) -> str:
+    """Return the branch to push to, even when CI checks out a detached HEAD."""
+    branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.strip()
+    if branch and branch != "HEAD":
+        return branch
+
+    if os.getenv("GITHUB_ACTIONS", "").lower() == "true":
+        for name in ("GITHUB_HEAD_REF", "GITHUB_REF_NAME"):
+            value = os.getenv(name, "").strip()
+            if value:
+                return value
+        ref = os.getenv("GITHUB_REF", "").strip()
+        if ref.startswith("refs/heads/"):
+            return ref[len("refs/heads/"):]
+
+    raise RuntimeError("cannot publish from a detached HEAD")
+
+
 def _ensure_real_build(manifest: dict, allow_mock: bool) -> None:
     if allow_mock:
         return
@@ -100,9 +118,7 @@ def publish_dist(
         logger.info("dist is already committed for build %s", build_id)
         return result
 
-    branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    if not branch or branch == "HEAD":
-        raise RuntimeError("cannot publish from a detached HEAD")
+    branch = current_branch(root)
 
     identity: list[str] = []
     if not _git(root, "config", "user.name", check=False).stdout.strip():
@@ -117,7 +133,7 @@ def publish_dist(
 
     if push:
         remote = os.getenv("GIT_PUBLISH_REMOTE", "origin")
-        _git(root, "push", remote, f"HEAD:{branch}")
+        _git(root, "push", remote, f"HEAD:refs/heads/{branch}")
         result["pushed"] = True
 
     logger.info(

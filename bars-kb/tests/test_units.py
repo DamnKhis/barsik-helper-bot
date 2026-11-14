@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 import pymupdf
 from PIL import Image, ImageDraw
@@ -34,7 +36,7 @@ from bars_kb.parsers.pdf_parser import parse_pdf
 from bars_kb.pipeline import source_fingerprint
 from bars_kb.providers import build_llm, build_vision
 from bars_kb.providers.qwen import QwenChat, QwenEmbeddings
-from bars_kb.publish import publish_dist
+from bars_kb.publish import current_branch, publish_dist
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "data" / "fixtures"
@@ -449,6 +451,35 @@ class DistFlowTest(unittest.TestCase):
             write_latest(settings.dist_dir, self.BUILDS[0])
             with self.assertRaises(RuntimeError):
                 publish_dist(settings, self.BUILDS[0], push=False)
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_current_branch_handles_detached_ci_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._git(repo, "init", "-q")
+            (repo / "README.md").write_text("base", encoding="utf-8")
+            self._git(repo, "add", "README.md")
+            self._git(
+                repo, "-c", "user.name=test", "-c", "user.email=test@example.com",
+                "commit", "-q", "-m", "init",
+            )
+            head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+            self._git(repo, "checkout", "-q", "--detach", head)
+            with mock.patch.dict(
+                os.environ,
+                {"GITHUB_ACTIONS": "", "GITHUB_REF_NAME": "", "GITHUB_HEAD_REF": "", "GITHUB_REF": ""},
+                clear=False,
+            ):
+                with self.assertRaises(RuntimeError):
+                    current_branch(repo)
+
+            env = {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_REF_NAME": "feature/bars-kb",
+                "GITHUB_HEAD_REF": "",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                self.assertEqual(current_branch(repo), "feature/bars-kb")
 
 
 class EvalRelevanceTest(unittest.TestCase):

@@ -187,6 +187,11 @@ Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
 опубликовать mock/hash-сборку поверх реальной. Публикация mock-сборки вручную
 требует явного `--allow-mock`.
 
+`workflow_dispatch` (кнопка Run workflow) доступен только когда workflow есть в
+ветке по умолчанию. До мержа он срабатывает на push в `feature/bars-kb`; правка
+самого файла workflow тоже запускает прогон — это безопасный smoke-тест: при
+неизменных документах сборка пропускается и коммит не создаётся.
+
 ### Откат
 
 ```bash

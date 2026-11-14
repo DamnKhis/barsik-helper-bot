@@ -5,6 +5,9 @@ on:
     branches: [main, master, feature/bars-kb]
     paths:
       - "bars-kb/docs/source/**"
+      # Editing this workflow also runs it: install, secret check and the
+      # "documents unchanged" path can be verified without touching the docs.
+      - ".github/workflows/update-kb.yml"
   workflow_dispatch:
 
 permissions:
