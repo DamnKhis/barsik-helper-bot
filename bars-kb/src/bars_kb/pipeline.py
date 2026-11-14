@@ -207,8 +207,8 @@ def ingest(
         "export": exported,
     }
     if export:
-        pruned = prune_builds(settings.dist_dir, keep=keep, current=build_id)
         write_latest(settings.dist_dir, build_id)
+        pruned = prune_builds(settings.dist_dir, keep=keep, current=build_id)
         manifest["export"] = {**exported, "latest": build_id, "pruned": pruned}
     write_json(settings.data_dir / "manifest.json", manifest)
     write_json(settings.data_dir / "builds" / f"{build_id}.json", manifest)
