@@ -11,8 +11,8 @@
 - чанкинг parent/child с breadcrumb;
 - типы чанков: `text`, `faq`, `table`, `diagram`, `screenshot`;
 - FAQ-слой по ключевым тест-кейсам (только из текста документов);
-- обогащение текста, таблиц и скриншотов — **Qwen3.8-Flash** (`qwen3.8-flash`) по API;
-- эмбеддинги: hash-lexical для работы без ключей, Qwen `text-embedding-v4` при наличии ключа
+- обогащение текста, таблиц и скриншотов — **Qwen3.8-Flash** (`qwen/qwen3.8-flash`) по API;
+- эмбеддинги: hash-lexical для работы без ключей, Qwen `qwen/qwen3-embedding-8b` при наличии ключа
   (**согласованная модель для финальной сборки: dim 1024**);
 - Qdrant: dense + sparse BM25, alias `bars_kb_current`;
 - экспорт `chunks.jsonl.gz` с векторами, `documents.jsonl`, `manifest.json`, `images/`;
@@ -34,7 +34,8 @@ cp .env.example .env
 
 # когда появится ключ
 # .env: QWEN_API_KEY=...
-# Qwen3.8-Flash — текст/JSON/скриншоты; text-embedding-v4 — векторы
+# OpenRouter: qwen/qwen3.8-flash — текст/JSON/скриншоты;
+# qwen/qwen3-embedding-8b — векторы
 .venv/bin/bars-kb ingest
 ```
 

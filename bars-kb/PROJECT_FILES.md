@@ -11,7 +11,7 @@
 | **Parsing / Ingestion** | `parsers/`, `models.py`, `pipeline.py` | читает PDF/DOCX/MD/TXT, чистит мусор, строит дерево разделов | `Document` с секциями, таблицами, картинками |
 | **Chunking** | `chunker.py` | режет разделы на parent/child-чанки, добавляет breadcrumb, типы, ID | список `Chunk` |
 | **Enrichment** | `enrich/`, `providers/qwen.py` | Qwen3.8-Flash: summary, вопросы, сущности, OCR скриншотов, схема процесса | обогащённый текст и payload |
-| **Embeddings / Search** | `embeddings/`, `store/` | dense `text-embedding-v4` + sparse BM25, запись и поиск в Qdrant | коллекция Qdrant |
+| **Embeddings / Search** | `embeddings/`, `store/` | dense `qwen/qwen3-embedding-8b` + sparse BM25, запись и поиск в Qdrant | коллекция Qdrant |
 | **Export / Handoff** | `pipeline.py` (export), `checksums.py`, `examples/` | собирает `dist/`, README пакета, checksums, restore/query | переносимый пакет |
 | **Evaluation / QA** | `eval/`, `tests/`, `data/golden_retrieval.jsonl` | offline-метрики hit@k/MRR, unit-тесты | `eval_report.json`, отчёт тестов |
 | **Config / CLI / Infra** | `config.py`, `cli.py`, `Makefile`, `docker-compose.yml` | `.env`, команды, Qdrant-сервер, запуск | воспроизводимый запуск |
@@ -72,7 +72,7 @@ dist/<build_id>/  → следующий разработчик
 | `providers/__init__.py` | фабрики `build_llm()` и `build_vision()`: Qwen или `None` | Enrichment |
 | `providers/base.py` | протоколы `LLMProvider`, `VisionProvider`, `EmbeddingProvider` | Enrichment |
 | `providers/http.py` | HTTP POST с ретраями и извлечением JSON из ответа модели | Enrichment |
-| `providers/qwen.py` | `QwenChat`: `qwen3.8-flash` для текста/JSON/картинок; `QwenEmbeddings`: `text-embedding-v4` | Enrichment / Search |
+| `providers/qwen.py` | `QwenChat`: `qwen/qwen3.8-flash` для текста/JSON/картинок; `QwenEmbeddings`: `qwen/qwen3-embedding-8b` | Enrichment / Search |
 | `providers/mock.py` | пустые mock-реализации для тестов | Enrichment |
 | `embeddings/__init__.py` | фабрика embedder: Qwen или hash-fallback | Search |
 | `embeddings/hash_embedder.py` | детерминированные лексические векторы для работы без ключа | Search |

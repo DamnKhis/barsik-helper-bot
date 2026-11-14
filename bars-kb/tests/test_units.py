@@ -109,17 +109,24 @@ class QwenProviderTest(unittest.TestCase):
         self.assertIsInstance(llm, QwenChat)
         self.assertIsInstance(vision, QwenChat)
         self.assertIsInstance(embedder, QwenEmbeddings)
-        self.assertEqual(llm.model, "qwen3.8-flash")
-        self.assertEqual(vision.model, "qwen3.8-flash")
-        self.assertEqual(embedder.model, "text-embedding-v4")
+        self.assertEqual(llm.model, "qwen/qwen3.8-flash")
+        self.assertEqual(vision.model, "qwen/qwen3.8-flash")
+        self.assertEqual(embedder.model, "qwen/qwen3-embedding-8b")
         self.assertEqual(embedder.dim, 1024)
 
     def test_payload_uses_json_mode(self) -> None:
-        chat = QwenChat("key", "https://example.invalid/v1", "qwen3.8-flash")
+        chat = QwenChat("key", "https://openrouter.ai/api/v1", "qwen/qwen3.8-flash")
         payload = chat._payload([{"role": "user", "content": "test"}])
-        self.assertEqual(payload["model"], "qwen3.8-flash")
+        self.assertEqual(payload["model"], "qwen/qwen3.8-flash")
         self.assertEqual(payload["response_format"], {"type": "json_object"})
-        self.assertFalse(payload["enable_thinking"])
+        self.assertEqual(payload["reasoning"], {"enabled": False})
+        self.assertNotIn("enable_thinking", payload)
+
+    def test_payload_supports_dashscope(self) -> None:
+        chat = QwenChat("key", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.8-flash")
+        payload = chat._payload([{"role": "user", "content": "test"}])
+        self.assertEqual(payload["enable_thinking"], False)
+        self.assertNotIn("reasoning", payload)
 
 
 class EvalRelevanceTest(unittest.TestCase):

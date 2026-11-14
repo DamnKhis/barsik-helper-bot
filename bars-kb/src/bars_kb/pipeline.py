@@ -119,6 +119,7 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
         snapshot = store.create_snapshot()
     finally:
         store.close()
+    write_json(settings.data_dir / "sparse_vocab.json", vocab)
     exported = (
         export_build(settings, build_id, collection, documents, all_chunks, document_records, snapshot)
         if export
@@ -158,7 +159,6 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
     }
     write_json(settings.data_dir / "manifest.json", manifest)
     write_json(settings.data_dir / "builds" / f"{build_id}.json", manifest)
-    write_json(settings.data_dir / "sparse_vocab.json", vocab)
     if export:
         write_json(settings.dist_dir / build_id / "manifest.json", manifest)
         write_checksums(settings.dist_dir / build_id)

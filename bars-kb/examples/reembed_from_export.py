@@ -6,11 +6,11 @@ model, this script recomputes only the dense vectors and produces a new
 portable export.
 
 Examples:
-    # OpenAI-compatible endpoint (Qwen/DashScope, OpenAI, vLLM, Ollama...)
+    # OpenAI-compatible endpoint (OpenRouter/DashScope, OpenAI, vLLM, Ollama...)
     python examples/reembed_from_export.py \
       --export dist/<build> --provider openai \
-      --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
-      --api-key $QWEN_API_KEY --model text-embedding-v4 --dim 1024
+      --base-url https://openrouter.ai/api/v1 \
+      --api-key $QWEN_API_KEY --model qwen/qwen3-embedding-8b --dim 1024
 
     # Local sentence-transformers model (run inside the target environment)
     python examples/reembed_from_export.py \

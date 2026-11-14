@@ -28,20 +28,21 @@ collection: bars_kb_<build_id>
 alias:      bars_kb_current
 previous:   bars_kb_prev
 
-dense:  1024, Cosine   (Qwen text-embedding-v4 в финальной сборке)
+dense:  1024, Cosine   (Qwen qwen/qwen3-embedding-8b в финальной сборке)
 bm25:   sparse, IDF    (точные строки: !>, 2334-26, ссылки)
 ```
 
-Модели (один ключ `QWEN_API_KEY`):
+Модели (один ключ `QWEN_API_KEY`, OpenRouter):
 
 | Задача | Модель |
 |---|---|
-| текст, JSON, таблицы | `qwen3.8-flash` |
-| скриншоты и схемы | `qwen3.8-flash` (мультимодальный) |
-| dense-векторы | `text-embedding-v4`, dim 1024 |
+| текст, JSON, таблицы | `qwen/qwen3.8-flash` |
+| скриншоты и схемы | `qwen/qwen3.8-flash` (мультимодальный) |
+| dense-векторы | `qwen/qwen3-embedding-8b`, dim 1024 |
 
-`qwen3.8-flash` — чат/мультимодальная модель, у неё нет embeddings-эндпоинта,
-поэтому векторы считает отдельная embedding-модель на том же ключе DashScope.
+`qwen/qwen3.8-flash` — чат/мультимодальная модель, у неё нет embeddings-эндпоинта,
+поэтому векторы считает отдельная embedding-модель на том же ключе OpenRouter.
+Для DashScope используйте `qwen3.8-flash` и `text-embedding-v4` (см. `.env.example`).
 
 Payload-поля:
 
@@ -102,17 +103,17 @@ python examples/query.py "2334-26" --mode sparse
 В `collection_config.json` и `manifest.json` зафиксированы:
 
 ```json
-"embedding": {"provider": "qwen", "model": "text-embedding-v4", "dim": 1024}
+"embedding": {"provider": "qwen", "model": "qwen/qwen3-embedding-8b", "dim": 1024}
 ```
 
 Если у вас другая модель/провайдер, пересоберите только dense-векторы готовым скриптом:
 
 ```bash
-# OpenAI-совместимый endpoint (Qwen/DashScope, OpenAI, vLLM, Ollama...)
+# OpenAI-совместимый endpoint (OpenRouter, DashScope, OpenAI, vLLM, Ollama...)
 python examples/reembed_from_export.py \
   --export dist/<build_id> --provider openai \
-  --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
-  --api-key "$QWEN_API_KEY" --model text-embedding-v4 --dim 1024 --send-dimensions
+  --base-url https://openrouter.ai/api/v1 \
+  --api-key "$QWEN_API_KEY" --model qwen/qwen3-embedding-8b --dim 1024 --send-dimensions
 
 # Локальная модель (в окружении, где установлен sentence-transformers)
 python examples/reembed_from_export.py \
@@ -123,9 +124,10 @@ python examples/reembed_from_export.py \
 создаёт новый `collection_config.json`/`manifest.json` и готовую папку для restore.
 Не смешивайте векторы разных моделей в одной коллекции.
 
-Это согласованная точка: следующий разработчик эмбеддит запросы Qwen `text-embedding-v4`
-(dim 1024), как и коллекция, и использует `qwen3.8-flash` для генерации ответов.
-Оба вызова идут через один `QWEN_API_KEY` (можно разные ключи, но провайдер один).
+Это согласованная точка: следующий разработчик эмбеддит запросы Qwen
+`qwen/qwen3-embedding-8b` (dim 1024), как и коллекция, и использует
+`qwen/qwen3.8-flash` для генерации ответов. Оба вызова идут через один
+`QWEN_API_KEY` OpenRouter (можно разные ключи, но провайдер один).
 Если embedding-модель изменится — используется скрипт выше.
 
 ## 6. Обновление документации

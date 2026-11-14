@@ -16,7 +16,7 @@ class HashEmbedder:
 
     It is not a semantic model, but it gives stable, comparable vectors and
     enough lexical overlap for smoke tests and retrieval evaluation. Real
-    builds use Qwen text-embedding-v4.
+    builds use a Qwen embedding model (qwen/qwen3-embedding-8b by default).
     """
 
     def __init__(self, dim: int = 1024) -> None:

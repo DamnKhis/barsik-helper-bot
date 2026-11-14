@@ -1,5 +1,5 @@
 {
-  "collection": "bars_kb_20261114T165647_a5023733",
+  "collection": "bars_kb_20261114T182839_a5023733",
   "alias": "bars_kb_current",
   "vectors": {
     "dense": {
@@ -11,8 +11,8 @@
     }
   },
   "embedding": {
-    "provider": "hash",
-    "model": "hash-lexical",
+    "provider": "qwen",
+    "model": "qwen/qwen3-embedding-8b",
     "dim": 1024,
     "normalize": true
   },

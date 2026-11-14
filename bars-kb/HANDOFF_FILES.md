@@ -3,10 +3,11 @@
 Итог нашей части — **один переносимый пакет** в `dist/<build_id>/` плюс инструменты
 рядом с ним. Никакого API, бота или сгенерированных ответов в поставке нет.
 
-Актуальная сборка: последняя папка `dist/<build_id>/` (около 2 МБ).
+Актуальная сборка: последняя папка `dist/<build_id>/` (около 3 МБ).
 
-Модели: **Qwen3.8-Flash** (`qwen3.8-flash`) — текст, JSON, таблицы и скриншоты;
-**Qwen `text-embedding-v4`** (dim 1024) — dense-векторы. Один `QWEN_API_KEY`.
+Модели: **Qwen3.8-Flash** (`qwen/qwen3.8-flash`) — текст, JSON, таблицы и скриншоты;
+**Qwen `qwen/qwen3-embedding-8b`** (dim 1024) — dense-векторы. Один `QWEN_API_KEY`
+OpenRouter (для DashScope — `qwen3.8-flash` и `text-embedding-v4`).
 
 ## Пакет `dist/<build_id>/`
 

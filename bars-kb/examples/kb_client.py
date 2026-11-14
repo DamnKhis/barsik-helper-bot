@@ -6,7 +6,7 @@ Set QWEN_API_KEY and EMBEDDING_PROVIDER=qwen for the real collection;
 hash-lexical is only for the no-key smoke build.
 
 This client only retrieves chunks. Answer generation is the bot's job and
-uses qwen3.8-flash with the same Qwen API key.
+uses qwen/qwen3.8-flash with the same Qwen API key.
 """
 from __future__ import annotations
 
@@ -60,8 +60,8 @@ def hash_embed(text: str, dim: int = 1024) -> list[float]:
 
 def qwen_embed(text: str, dim: int = 1024) -> list[float]:
     api_key = os.getenv("QWEN_API_KEY", "")
-    base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
-    model = os.getenv("QWEN_EMBEDDING_MODEL", "text-embedding-v4")
+    base_url = os.getenv("QWEN_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+    model = os.getenv("QWEN_EMBEDDING_MODEL", "qwen/qwen3-embedding-8b")
     if not api_key:
         raise RuntimeError("QWEN_API_KEY is not set; use EMBEDDING_PROVIDER=hash for the mock build")
     body = json.dumps(

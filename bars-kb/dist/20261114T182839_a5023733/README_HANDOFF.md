@@ -4,14 +4,14 @@
 
 | Параметр | Значение |
 |---|---|
-| build_id | `20261114T165647_a5023733` |
-| коллекция | `bars_kb_20261114T165647_a5023733` |
+| build_id | `20261114T182839_a5023733` |
+| коллекция | `bars_kb_20261114T182839_a5023733` |
 | alias | `bars_kb_current` |
 | предыдущая версия | `bars_kb_prev` |
-| создан | 2026-11-14T16:56:52.075090+00:00 |
-| эмбеддинги | `hash` / `hash-lexical`, dim `1024` |
-| текст и JSON | `mock` |
-| скриншоты и схемы | `mock` |
+| создан | 2026-11-14T18:29:19.780050+00:00 |
+| эмбеддинги | `qwen` / `qwen/qwen3-embedding-8b`, dim `1024` |
+| текст и JSON | `qwen/qwen3.8-flash` |
+| скриншоты и схемы | `qwen/qwen3.8-flash` |
 | sparse | BM25, IDF |
 | snapshot | `нет (embedded Qdrant)` |
 
@@ -47,19 +47,19 @@
 ```bash
 # Qdrant-сервер
 python examples/restore_from_export.py \
-  --export 20261114T165647_a5023733 \
+  --export 20261114T182839_a5023733 \
   --qdrant-url http://127.0.0.1:6333 \
   --alias bars_kb_current
 
 # локальный embedded Qdrant
 python examples/restore_from_export.py \
-  --export 20261114T165647_a5023733 --qdrant-path data/qdrant-restored
+  --export 20261114T182839_a5023733 --qdrant-path data/qdrant-restored
 ```
 
 ## Проверка целостности
 
 ```bash
-cd 20261114T165647_a5023733 && sha256sum -c checksums.sha256
+cd 20261114T182839_a5023733 && sha256sum -c checksums.sha256
 ```
 
 ## Поиск
@@ -70,5 +70,5 @@ python examples/query.py "Почему не работает фильтр !> 200
 
 ## Модель эмбеддингов
 
-Вектор запроса обязан считаться той же моделью: **`hash-lexical`**, dim **1024**.
+Вектор запроса обязан считаться той же моделью: **`qwen/qwen3-embedding-8b`**, dim **1024**.
 Если модель другая — `examples/reembed_from_export.py` пересчитает только dense-векторы.
