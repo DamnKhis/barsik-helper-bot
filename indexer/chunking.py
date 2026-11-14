@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from indexer.parse_docx import Block
+from indexer.blocks import Block
 
 MAX_CHUNK_CHARS = 1500  # ~350-400 токенов: крупнее — размывается поиск, мельче — теряется контекст
 

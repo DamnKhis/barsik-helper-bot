@@ -21,7 +21,7 @@ from app.analytics.db import log_reindex
 from app.integrations.git_provider import GitProvider, make_provider
 from indexer.chunking import chunk_document
 from indexer.embeddings import EmbeddingClient
-from indexer.parse_docx import parse_file, parse_markdown
+from indexer.blocks import parse_file, parse_markdown
 from indexer.qdrant_client import delete_doc, ensure_collection, upsert_chunks
 from settings import Settings
 
@@ -32,16 +32,17 @@ def index_content(
     doc_name: str, content: bytes, client: QdrantClient, collection: str, embeddings: EmbeddingClient
 ) -> int:
     """Один документ: bytes -> блоки -> чанки -> Qdrant. Возвращает число чанков."""
-    if Path(doc_name).suffix.lower() == ".docx":
-        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+    suffix = Path(doc_name).suffix.lower()
+    if suffix in {".md", ".txt"}:
+        blocks = parse_markdown(content.decode("utf-8"))
+    else:  # .pdf / .docx — парсеру нужен файл на диске
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
             tmp_path = Path(tmp.name)
         try:
             blocks = parse_file(tmp_path)
         finally:
             tmp_path.unlink(missing_ok=True)
-    else:
-        blocks = parse_markdown(content.decode("utf-8"))
     chunks = chunk_document(doc_name, blocks)
     if not chunks:
         return 0

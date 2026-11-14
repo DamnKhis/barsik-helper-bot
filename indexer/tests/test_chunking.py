@@ -1,6 +1,6 @@
 """Проверка чанкинга: путь раздела, таблицы, нарезка длинных разделов (роль 1)."""
 from indexer.chunking import MAX_CHUNK_CHARS, chunk_document
-from indexer.parse_docx import Block
+from indexer.blocks import Block
 
 
 def test_chunks_keep_section_path():

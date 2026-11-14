@@ -10,8 +10,11 @@ openai>=1.40
 qdrant-client>=1.11
 redis>=5.0
 
-# Парсинг документации
-python-docx>=1.1
+# Парсинг документации (основной формат — PDF)
+pymupdf>=1.24          # текст+шрифты+таблицы+картинки (import fitz)
+pdfplumber>=0.11       # запасной парсер таблиц для сложной вёрстки
+pytesseract>=0.3       # OCR сканированных PDF (нужен tesseract в системе)
+python-docx>=1.1       # запасной формат .docx
 
 # Telegram-бот
 aiogram>=3.13

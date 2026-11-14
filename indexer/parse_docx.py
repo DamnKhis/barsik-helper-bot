@@ -1,21 +1,18 @@
-"""Парсинг .docx и .md в плоский список блоков. Роль 1.
+"""Парсинг .docx в блоки (запасной парсер). Роль 1.
 
-Зачем блоки, а не «весь текст сразу»: чанк собирается из блоков одного
-раздела (см. chunking.py), таблица не отрывается от заголовка, а скриншот
-превращается в подпись через VLM — без этого бот не ответит на вопросы вида
-«как выглядит кнопка» (критерий №1 хакатона).
+Основной формат команды — PDF (см. parse_pdf.py, PyMuPDF). Этот парсер
+оставлен как запасной: если пришлют .docx, пайплайн работает без изменений.
+Общий тип Block и диспетчер parse_file живут в indexer/blocks.py.
 
 TODO(роль 1):
-  - скриншоты: достать изображения из docx (doc.part.related_parts) и получить
-    подпись через VLM (OpenAI-совместимый chat/completions с image_url);
-    подпись добавлять блоком-абзацем сразу после картинки;
+  - скриншоты из docx (doc.part.related_parts) -> подпись через VLM,
+    как это уже сделано в parse_pdf.make_vlm_captioner();
   - стиль «List Paragraph» -> маркированный список («- ») для лучшей нарезки;
-  - объединённые ячейки таблиц дублируются текстом — при желании дедуплицировать.
+  - объединённые ячейки таблиц дублируются текстом — дедуплицировать.
 """
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from pathlib import Path
 
 from docx import Document
@@ -24,14 +21,11 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+from indexer.blocks import Block
+
 HEADING_RE = re.compile(r"heading\s*(\d+)", re.IGNORECASE)
 
-
-@dataclass
-class Block:
-    type: str  # "heading" | "paragraph" | "table"
-    text: str
-    level: int = 0  # уровень заголовка (только для heading)
+__all__ = ["Block", "parse_docx"]
 
 
 def _iter_block_items(doc: _Document):
@@ -71,39 +65,3 @@ def parse_docx(path: Path) -> list[Block]:
         elif isinstance(item, Table):
             blocks.append(Block("table", _table_to_markdown(item)))
     return blocks
-
-
-def parse_markdown(text: str) -> list[Block]:
-    """Минимальный парсер .md — для базы знаний, живущей в Git-репозитории."""
-    blocks: list[Block] = []
-    table_buf: list[str] = []
-
-    def flush_table() -> None:
-        nonlocal table_buf
-        if table_buf:
-            blocks.append(Block("table", "\n".join(table_buf)))
-            table_buf = []
-
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("|"):
-            table_buf.append(stripped)
-            continue
-        flush_table()
-        if not stripped:
-            continue
-        match = re.match(r"^(#{1,6})\s+(.*)$", stripped)
-        if match:
-            blocks.append(Block("heading", match.group(2).strip(), level=len(match.group(1))))
-        else:
-            blocks.append(Block("paragraph", stripped))
-    flush_table()
-    return blocks
-
-
-def parse_file(path: Path) -> list[Block]:
-    if path.suffix.lower() == ".docx":
-        return parse_docx(path)
-    if path.suffix.lower() in {".md", ".txt"}:
-        return parse_markdown(path.read_text(encoding="utf-8"))
-    raise ValueError(f"Неподдерживаемый формат: {path.suffix}")

@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = 1536  # bge-m3 -> 1024
 
+    # --- VLM: подписи скриншотов из PDF (пусто = плейсхолдер без подписи).
+    # Провайдер тот же, что LLM_BASE_URL; модель должна уметь картинки (GLM-4V, gpt-4o-mini…)
+    vlm_model: str = ""
+
     # --- Хранилища ---
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "bars_docs"
