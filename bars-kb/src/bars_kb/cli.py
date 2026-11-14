@@ -118,6 +118,16 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
         if manifest is None:
+            if (
+                getattr(args, "publish", False)
+                and not args.allow_mock
+                and (settings.mock_llm or settings.mock_embedding)
+            ):
+                logger.error(
+                    "refusing to build a mock/hash KB for publishing; set QWEN_API_KEY "
+                    "or pass --allow-mock"
+                )
+                return 2
             manifest = ingest(
                 settings,
                 source=source,
