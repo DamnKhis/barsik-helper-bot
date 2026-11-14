@@ -22,6 +22,8 @@ from pathlib import Path
 from qdrant_client import QdrantClient
 from qdrant_client.models import SparseVector
 
+from export_paths import resolve_export_dir
+
 TOKEN = re.compile(r"[a-zа-яё0-9]+", re.I)
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -99,16 +101,13 @@ def encode_sparse(text: str, vocab: dict[str, int]) -> SparseVector:
 class KB:
     def __init__(self, export_dir: Path | None = None) -> None:
         load_env()
-        self.export_dir = Path(export_dir or os.getenv("KB_EXPORT_DIR", ROOT / "dist"))
+        self.export_dir = resolve_export_dir(export_dir)
         if not (self.export_dir / "collection_config.json").exists():
-            candidates = sorted(p for p in self.export_dir.iterdir() if (p / "collection_config.json").exists())
-            if not candidates:
-                raise RuntimeError(f"Export dir not found: {self.export_dir}")
-            self.export_dir = candidates[-1]
-        if not self.export_dir.exists():
             raise RuntimeError(f"Export dir not found: {self.export_dir}")
         config = json.loads((self.export_dir / "collection_config.json").read_text(encoding="utf-8"))
-        self.collection = config.get("alias") or config["collection"]
+        # Use the concrete collection from the selected build, not the moving
+        # alias: otherwise a pinned/rolled-back export would query newer data.
+        self.collection = config.get("collection") or config.get("alias")
         self.dim = int(config.get("embedding", {}).get("dim", 1024))
         self.vocab = json.loads((self.export_dir / "sparse_vocab.json").read_text(encoding="utf-8"))
         qdrant_url = os.getenv("QDRANT_URL", "")

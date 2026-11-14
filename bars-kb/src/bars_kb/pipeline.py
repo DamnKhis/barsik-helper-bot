@@ -14,6 +14,7 @@ from .checksums import write_checksums
 from .config import Settings
 from .embeddings import build_embedder
 from .embeddings.sparse import build_vocab, encode_sparse
+from .exports import prune_builds, write_latest
 from .models import Chunk, Document
 from .parsers import SUPPORTED, parse_document
 from .providers import build_llm, build_vision
@@ -39,22 +40,51 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_id_for(paths: list[Path]) -> str:
+def source_fingerprint(files: list[Path], root: Path | None = None) -> tuple[str, list[dict]]:
+    """Hash document paths and contents; independent of the absolute source root."""
+    records: list[dict] = []
+    for path in sorted(files):
+        if root is not None:
+            try:
+                key = path.resolve().relative_to(root.resolve()).as_posix()
+            except ValueError:
+                key = path.name
+        else:
+            key = path.name
+        records.append(
+            {
+                "path": key,
+                "sha256": file_sha256(path),
+                "size": path.stat().st_size,
+            }
+        )
+
     digest = hashlib.sha256()
-    for path in paths:
-        digest.update(path.name.encode("utf-8"))
-        digest.update(file_sha256(path).encode("ascii"))
+    for record in records:
+        digest.update(f"{record['path']}\0{record['sha256']}\n".encode("utf-8"))
+    return digest.hexdigest(), records
+
+
+def build_id_for(paths: list[Path], root: Path | None = None) -> str:
+    digest, _ = source_fingerprint(paths, root)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    return f"{stamp}_{digest.hexdigest()[:8]}"
+    return f"{stamp}_{digest[:8]}"
 
 
-def ingest(settings: Settings, source: Path | None = None, export: bool = True) -> dict:
+def ingest(
+    settings: Settings,
+    source: Path | None = None,
+    export: bool = True,
+    keep: int = 2,
+) -> dict:
     source = source or settings.inbox
     files = iter_sources(source)
     if not files:
         raise RuntimeError(f"No supported documents found in {source}")
 
-    build_id = build_id_for(files)
+    source_digest, source_records = source_fingerprint(files, source)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    build_id = f"{stamp}_{source_digest[:8]}"
     collection = f"{settings.collection_prefix}_{build_id}"
     settings.images_dir.mkdir(parents=True, exist_ok=True)
     (settings.data_dir / "builds").mkdir(parents=True, exist_ok=True)
@@ -128,7 +158,16 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
         store.close()
     write_json(settings.data_dir / "sparse_vocab.json", vocab)
     exported = (
-        export_build(settings, build_id, collection, documents, all_chunks, document_records, snapshot)
+        export_build(
+            settings,
+            build_id,
+            collection,
+            documents,
+            all_chunks,
+            document_records,
+            snapshot,
+            source_digest,
+        )
         if export
         else {}
     )
@@ -139,6 +178,7 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
         "alias": f"{settings.collection_prefix}_current",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "pipeline_version": PIPELINE_VERSION,
+        "source": {"digest": source_digest, "files": source_records},
         "embedding": {
             "provider": settings.embedding_provider if not settings.mock_embedding else "hash",
             "model": settings.qwen_embedding_model if not settings.mock_embedding else "hash-lexical",
@@ -164,6 +204,10 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
         "qdrant": {"count": count, "snapshot": snapshot, "mode": "server" if settings.qdrant_url else "embedded"},
         "export": exported,
     }
+    if export:
+        pruned = prune_builds(settings.dist_dir, keep=keep, current=build_id)
+        write_latest(settings.dist_dir, build_id)
+        manifest["export"] = {**exported, "latest": build_id, "pruned": pruned}
     write_json(settings.data_dir / "manifest.json", manifest)
     write_json(settings.data_dir / "builds" / f"{build_id}.json", manifest)
     if export:
@@ -181,6 +225,7 @@ def export_build(
     chunks: list[Chunk],
     document_records: list[dict],
     snapshot: str | None,
+    source_digest: str = "",
 ) -> dict:
     out = settings.dist_dir / build_id
     out.mkdir(parents=True, exist_ok=True)
@@ -254,9 +299,14 @@ def export_build(
         if source.exists():
             shutil.copy2(source, out / name)
 
-    write_json(out / "build_info.json", {"build_id": build_id, "collection": collection, "snapshot": snapshot})
+    write_json(out / "build_info.json", {
+        "build_id": build_id,
+        "collection": collection,
+        "snapshot": snapshot,
+        "source_digest": source_digest,
+    })
     _write_package_readme(
-        out, settings, build_id, collection, chunks, document_records, snapshot
+        out, settings, build_id, collection, chunks, document_records, snapshot, source_digest
     )
     try:
         portable_out = out.relative_to(settings.root).as_posix()
@@ -302,6 +352,7 @@ def _write_package_readme(
     chunks: list[Chunk],
     document_records: list[dict],
     snapshot: str | None,
+    source_digest: str = "",
 ) -> None:
     counts = Counter(chunk.chunk_type for chunk in chunks)
     embedding_model = (
@@ -324,6 +375,7 @@ def _write_package_readme(
 | коллекция | `{collection}` |
 | alias | `{settings.collection_prefix}_current` |
 | предыдущая версия | `{settings.collection_prefix}_prev` |
+| source digest | `{source_digest[:16] or "—"}` |
 | создан | {datetime.now(timezone.utc).isoformat()} |
 | эмбеддинги | `{embedding_provider}` / `{embedding_model}`, dim `{settings.embedding_dim}` |
 | текст и JSON | {enrichment_model} |
@@ -360,16 +412,18 @@ def _write_package_readme(
 
 ## Восстановление
 
+Из корня проекта (выбирается сборка из `dist/LATEST`):
+
 ```bash
 # Qdrant-сервер
 python examples/restore_from_export.py \\
-  --export {out.name} \\
+  --export dist \\
   --qdrant-url http://127.0.0.1:6333 \\
   --alias {settings.collection_prefix}_current
 
 # локальный embedded Qdrant
 python examples/restore_from_export.py \\
-  --export {out.name} --qdrant-path data/qdrant-restored
+  --export dist --qdrant-path data/qdrant-restored
 ```
 
 ## Проверка целостности

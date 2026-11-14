@@ -23,16 +23,20 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from export_paths import resolve_export_dir
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--export", type=Path, required=True)
+    parser.add_argument("--export", type=Path, default=None,
+                        help="Build directory or dist/ directory; default: dist/LATEST")
     parser.add_argument("--qdrant-url", default="")
     parser.add_argument("--qdrant-path", default="data/qdrant-restored")
     parser.add_argument("--alias", default="bars_kb_current")
     args = parser.parse_args()
 
-    config = json.loads((args.export / "collection_config.json").read_text(encoding="utf-8"))
+    export_dir = resolve_export_dir(args.export)
+    config = json.loads((export_dir / "collection_config.json").read_text(encoding="utf-8"))
     collection = config["collection"]
     dim = int(config["embedding"]["dim"])
     client = (
@@ -51,7 +55,7 @@ def main() -> int:
 
     batch: list[PointStruct] = []
     total = 0
-    with gzip.open(args.export / "chunks.jsonl.gz", "rt", encoding="utf-8") as handle:
+    with gzip.open(export_dir / "chunks.jsonl.gz", "rt", encoding="utf-8") as handle:
         for line in handle:
             row = json.loads(line)
             sparse = row.get("sparse_vector") or {}

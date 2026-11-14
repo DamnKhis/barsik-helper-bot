@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import io
+import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
@@ -15,13 +18,23 @@ from bars_kb.embeddings import build_embedder
 from bars_kb.embeddings.hash_embedder import HashEmbedder
 from bars_kb.embeddings.sparse import build_vocab, encode_sparse
 from bars_kb.eval.runner import _is_relevant
+from bars_kb.exports import (
+    list_builds,
+    previous_build,
+    prune_builds,
+    read_latest,
+    resolve_export_dir,
+    write_latest,
+)
 from bars_kb.models import Block, Document, Section, table_to_markdown
 from bars_kb.parsers.clean import clean_text
 from bars_kb.parsers.docx_parser import parse_docx
 from bars_kb.parsers.image_filter import inspect_image
 from bars_kb.parsers.pdf_parser import parse_pdf
+from bars_kb.pipeline import source_fingerprint
 from bars_kb.providers import build_llm, build_vision
 from bars_kb.providers.qwen import QwenChat, QwenEmbeddings
+from bars_kb.publish import publish_dist
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "data" / "fixtures"
@@ -283,6 +296,159 @@ class EnrichmentPoolTest(unittest.TestCase):
             chunks = Chunker(local, llm=None, vision=vision).document_chunks(document)
             self.assertEqual(len(chunks), 4)
             self.assertEqual(vision.calls, 1)
+
+
+class DistFlowTest(unittest.TestCase):
+    BUILDS = [
+        "20260101T000001_deadbeef",
+        "20260102T000002_feedface",
+        "20260103T000003_cafebabe",
+    ]
+
+    def _make_build(self, dist: Path, build_id: str, manifest: dict | None = None) -> Path:
+        path = dist / build_id
+        path.mkdir(parents=True)
+        payload = {
+            "build_id": build_id,
+            "embedding": {"provider": "qwen"},
+            "enrichment": {"llm_provider": "qwen"},
+            "counts": {"chunks": 1, "images": 0},
+        }
+        payload.update(manifest or {})
+        (path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+        (path / "collection_config.json").write_text(
+            json.dumps({"collection": f"bars_kb_{build_id}"}),
+            encoding="utf-8",
+        )
+        (path / "sparse_vocab.json").write_text("{}", encoding="utf-8")
+        return path
+
+    @staticmethod
+    def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def test_source_fingerprint_tracks_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.pdf").write_bytes(b"one")
+            (root / "b.docx").write_bytes(b"two")
+            files = sorted(root.iterdir())
+            first, records = source_fingerprint(files, root)
+            second, _ = source_fingerprint(files, root)
+            self.assertEqual(first, second)
+            self.assertEqual([record["path"] for record in records], ["a.pdf", "b.docx"])
+            (root / "a.pdf").write_bytes(b"changed")
+            third, _ = source_fingerprint(files, root)
+            self.assertNotEqual(first, third)
+
+    def test_latest_prune_and_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for index, build_id in enumerate(self.BUILDS):
+                self._make_build(dist, build_id, {"created_at": f"2026-01-0{index + 1}"})
+            write_latest(dist, self.BUILDS[2])
+            self.assertEqual(read_latest(dist), self.BUILDS[2])
+            self.assertEqual(previous_build(dist, self.BUILDS[2]), self.BUILDS[1])
+
+            removed = prune_builds(dist, keep=2, current=self.BUILDS[2])
+            self.assertEqual(removed, [self.BUILDS[0]])
+            remaining = sorted(path.name for path in dist.iterdir() if path.is_dir())
+            self.assertEqual(remaining, self.BUILDS[1:])
+            self.assertEqual(
+                [build["build_id"] for build in list_builds(dist)],
+                self.BUILDS[1:],
+            )
+
+    def test_resolve_export_dir_follows_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for build_id in self.BUILDS[:2]:
+                self._make_build(dist, build_id)
+            write_latest(dist, self.BUILDS[1])
+            self.assertEqual(resolve_export_dir(dist), (dist / self.BUILDS[1]).resolve())
+            self.assertEqual(
+                resolve_export_dir(dist / self.BUILDS[0]),
+                (dist / self.BUILDS[0]).resolve(),
+            )
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_publish_commits_only_dist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._git(repo, "init", "-q")
+            (repo / "README.md").write_text("base", encoding="utf-8")
+            self._git(repo, "add", "README.md")
+            self._git(
+                repo, "-c", "user.name=test", "-c", "user.email=test@example.com",
+                "commit", "-q", "-m", "init",
+            )
+
+            settings = replace(
+                load_settings(ROOT),
+                root=repo,
+                dist_dir=repo / "dist",
+                data_dir=repo / "data",
+            )
+            self._make_build(settings.dist_dir, self.BUILDS[0])
+            write_latest(settings.dist_dir, self.BUILDS[0])
+
+            result = publish_dist(settings, self.BUILDS[0], push=False)
+            self.assertTrue(result["committed"])
+            committed = self._git(repo, "show", "--name-only", "--pretty=format:", "HEAD")
+            self.assertIn(f"dist/{self.BUILDS[0]}/manifest.json", committed.stdout)
+            self.assertIn("dist/LATEST", committed.stdout)
+
+            again = publish_dist(settings, self.BUILDS[0], push=False)
+            self.assertFalse(again["committed"])
+
+    def test_publish_refuses_mock_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dist = root / "dist"
+            self._make_build(
+                dist,
+                self.BUILDS[0],
+                {"embedding": {"provider": "hash"}, "enrichment": {"llm_provider": "mock"}},
+            )
+            write_latest(dist, self.BUILDS[0])
+            settings = replace(
+                load_settings(ROOT),
+                root=root,
+                dist_dir=dist,
+                data_dir=root / "data",
+            )
+            with self.assertRaises(RuntimeError):
+                publish_dist(settings, self.BUILDS[0], push=False)
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_publish_refuses_unrelated_staged_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._git(repo, "init", "-q")
+            (repo / "README.md").write_text("base", encoding="utf-8")
+            self._git(repo, "add", "README.md")
+            self._git(
+                repo, "-c", "user.name=test", "-c", "user.email=test@example.com",
+                "commit", "-q", "-m", "init",
+            )
+            (repo / "notes.txt").write_text("draft", encoding="utf-8")
+            self._git(repo, "add", "notes.txt")
+
+            settings = replace(
+                load_settings(ROOT),
+                root=repo,
+                dist_dir=repo / "dist",
+                data_dir=repo / "data",
+            )
+            self._make_build(settings.dist_dir, self.BUILDS[0])
+            write_latest(settings.dist_dir, self.BUILDS[0])
+            with self.assertRaises(RuntimeError):
+                publish_dist(settings, self.BUILDS[0], push=False)
 
 
 class EvalRelevanceTest(unittest.TestCase):

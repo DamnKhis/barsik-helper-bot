@@ -29,10 +29,13 @@ import shutil
 import urllib.request
 from pathlib import Path
 
+from export_paths import resolve_export_dir
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--export", type=Path, required=True)
+    parser.add_argument("--export", type=Path, default=None,
+                        help="Build directory or dist/ directory; default: dist/LATEST")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--provider", choices=["openai", "local"], required=True)
     parser.add_argument("--model", required=True)
@@ -44,9 +47,10 @@ def main() -> int:
                         help="Send the dimensions field (OpenAI text-embedding-3, Qwen v4)")
     args = parser.parse_args()
 
-    config = json.loads((args.export / "collection_config.json").read_text(encoding="utf-8"))
-    manifest = json.loads((args.export / "manifest.json").read_text(encoding="utf-8"))
-    records = _read_chunks(args.export / "chunks.jsonl.gz")
+    export_dir = resolve_export_dir(args.export)
+    config = json.loads((export_dir / "collection_config.json").read_text(encoding="utf-8"))
+    manifest = json.loads((export_dir / "manifest.json").read_text(encoding="utf-8"))
+    records = _read_chunks(export_dir / "chunks.jsonl.gz")
     if not records:
         raise RuntimeError("No chunks in export")
 
@@ -70,7 +74,7 @@ def main() -> int:
 
     slug = _slug(args.model)
     build_id = str(manifest.get("build_id") or config.get("collection") or "export")
-    out = args.out or (args.export.parent / f"{build_id}_{slug}")
+    out = args.out or (export_dir.parent / f"{build_id}_{slug}")
     out.mkdir(parents=True, exist_ok=True)
 
     for row, vector in zip(records, vectors):
@@ -80,11 +84,11 @@ def main() -> int:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     for name in ("documents.jsonl", "images.jsonl", "sparse_vocab.json", "golden_retrieval.jsonl"):
-        source = args.export / name
+        source = export_dir / name
         if source.exists():
             shutil.copy2(source, out / name)
-    if (args.export / "images").is_dir():
-        shutil.copytree(args.export / "images", out / "images", dirs_exist_ok=True)
+    if (export_dir / "images").is_dir():
+        shutil.copytree(export_dir / "images", out / "images", dirs_exist_ok=True)
 
     collection = f"{config.get('collection', 'bars_kb')}_{slug}"
     old_model = (config.get("embedding") or {}).get("model", "")

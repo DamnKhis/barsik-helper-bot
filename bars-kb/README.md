@@ -114,8 +114,11 @@ QWEN_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
 |---|---|
 | `bars-kb ingest` | собрать базу из `docs/source` |
 | `bars-kb ingest --source data/fixtures` | собрать из тестовых DOCX |
-| `bars-kb sync` | локальная синхронизация + пересбор |
+| `bars-kb sync` | локальная синхронизация + пересбор, если документы изменились |
 | `bars-kb sync --github` | скачать `GITHUB_REPO` и пересобрать |
+| `bars-kb sync --publish` | пересобрать и закоммитить/запушить `dist/` |
+| `bars-kb builds` | показать сборки в `dist/`, `*` — актуальная |
+| `bars-kb rollback [build_id]` | переключить `dist/LATEST` на предыдущую сборку |
 | `bars-kb eval --top-k 8` | прогнать golden set, записать `data/eval_report.json` |
 | `bars-kb fixtures` | сгенерировать DOCX-фикстуры |
 | `bars-kb status` | показать последний manifest |
@@ -126,14 +129,79 @@ QWEN_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
 .venv/bin/bars-kb --log-level DEBUG ingest
 ```
 
-То же через `make`: `make install`, `make ingest`, `make eval`, `make test`,
-`make restore`, `make query`.
+То же через `make`: `make install`, `make ingest`, `make sync`, `make publish`,
+`make builds`, `make rollback`, `make eval`, `make test`, `make restore`,
+`make query`.
+
+## Обновление документации и `dist/`
+
+`dist/` хранится в git намеренно: это готовый пакет передачи. Чтобы не менять
+код следующего разработчика при каждой пересборке, актуальная сборка выбирается
+через стабильный указатель `dist/LATEST`, а не через имя папки.
+
+```text
+dist/LATEST                     # содержит build_id
+dist/<build_id>/                # текущая сборка
+dist/<build_id-1>/              # предыдущая сборка
+```
+
+В коде и конфигурации используйте базовую папку:
+
+```dotenv
+KB_EXPORT_DIR=bars-kb/dist
+```
+
+`examples/kb_client.py`, `examples/restore_from_export.py` и `Retriever` сами
+читают `LATEST`. Захардкоженный `dist/2026...` не нужен.
+
+### Локально
+
+```bash
+# новые PDF/DOCX уже лежат в docs/source
+bars-kb sync
+
+# то же + commit/push обновлённого dist
+bars-kb sync --publish
+```
+
+`sync` сравнивает digest содержимого документов с текущей сборкой. Если
+документы не изменились, пересборка пропускается; `--force` пересобирает
+принудительно. После успешной сборки обновляются `dist/LATEST`, манифест и
+checksums, а старые сборки удаляются (`--keep 2` по умолчанию).
+
+### GitHub Actions
+
+Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
+запускается при изменении `docs/source/**` (и вручную через `workflow_dispatch`):
+
+1. ставит пакет и запускает `bars-kb sync --source docs/source --publish`;
+2. если документы изменились — пересобирает KB и коммитит `dist/` + `dist/LATEST`
+   обратно в ту же ветку;
+3. если не изменились — ничего не коммитит.
+
+Нужен repository secret `QWEN_API_KEY`. Без него workflow падает, чтобы не
+опубликовать mock/hash-сборку поверх реальной. Публикация mock-сборки вручную
+требует явного `--allow-mock`.
+
+### Откат
+
+```bash
+bars-kb builds                 # список; * — актуальная
+bars-kb rollback               # LATEST -> предыдущая сборка
+bars-kb rollback --publish     # закоммитить и запушить откат
+python examples/restore_from_export.py --export dist
+```
+
+`--keep 2` гарантирует, что предыдущая сборка остаётся в репозитории. Откат
+меняет указатель, а Qdrant переключается восстановлением выбранного пакета
+(скрипт создаёт коллекцию и переключает alias `bars_kb_current`).
 
 ## Что получается на выходе
 
 - коллекция Qdrant `bars_kb_<build_id>` и alias `bars_kb_current`;
 - пакет `dist/<build_id>/` с `chunks.jsonl.gz`, `sparse_vocab.json`, `images/`,
   `manifest.json`, `checksums.sha256`;
+- `dist/LATEST` — стабильный указатель на актуальную сборку;
 - `data/manifest.json` с последней сборкой и `data/eval_report.json` с метриками.
 
 Пакет самодостаточен: его можно восстановить в чистый Qdrant скриптом
@@ -166,6 +234,7 @@ docs/
   source/       исходные документы для базы знаний
   context/      бриф и критерии (не в базе знаний)
 dist/<build>/   handoff-пакет
+dist/LATEST     указатель на актуальную сборку
 HANDOFF_FILES.md  что именно отдаём: список файлов и их назначение
 PROJECT_FILES.md  карта модулей: кто за что отвечает и что делает
 examples/       restore + query + reembed примеры

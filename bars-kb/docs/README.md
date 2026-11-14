@@ -17,5 +17,9 @@ docs/
 Новые документы кладите в `source/` и запускайте:
 
 ```bash
-bars-kb sync
+bars-kb sync            # пересоберёт, только если документы изменились
+bars-kb sync --publish  # + commit/push dist/ и dist/LATEST
 ```
+
+Актуальная сборка определяется через `dist/LATEST`; имя папки `dist/<build_id>/`
+меняется, поэтому не указывайте его в коде и `.env`.
