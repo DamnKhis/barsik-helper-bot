@@ -1,9 +1,12 @@
-"""Minimal client for the handed-over BARS KB.
+"""Minimal retrieval client for the handed-over BARS KB.
 
 Works with a Qdrant server or an embedded local Qdrant folder.
 The query must be embedded with the same model that produced the collection.
 Set QWEN_API_KEY and EMBEDDING_PROVIDER=qwen for the real collection;
 hash-lexical is only for the no-key smoke build.
+
+This client only retrieves chunks. Answer generation is the bot's job and
+uses qwen3.8-flash with the same Qwen API key.
 """
 from __future__ import annotations
 
