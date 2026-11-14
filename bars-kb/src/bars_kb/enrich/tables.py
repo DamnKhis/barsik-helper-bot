@@ -30,14 +30,15 @@ def enrich_table(
             "entities": [c for c in rows[0] if c][:10],
         }
     key = cache.key("table", title, markdown[:4000])
-    cached = cache.get(key)
-    if cached:
-        return cached
-    result = llm.complete_json(SYSTEM_TABLE, f"Таблица: {title}\n\n{markdown[:12000]}")
-    result = {
-        "description": str(result.get("description", ""))[:1200],
-        "questions": [str(x)[:300] for x in result.get("questions", [])][:8],
-        "entities": [str(x)[:120] for x in result.get("entities", [])][:30],
-    }
-    cache.set(key, result)
-    return result
+    with cache.lock(key):
+        cached = cache.get(key)
+        if cached:
+            return cached
+        result = llm.complete_json(SYSTEM_TABLE, f"Таблица: {title}\n\n{markdown[:12000]}")
+        result = {
+            "description": str(result.get("description", ""))[:1200],
+            "questions": [str(x)[:300] for x in result.get("questions", [])][:8],
+            "entities": [str(x)[:120] for x in result.get("entities", [])][:30],
+        }
+        cache.set(key, result)
+        return result

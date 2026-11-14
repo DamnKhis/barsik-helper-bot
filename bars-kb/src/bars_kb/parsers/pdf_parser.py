@@ -1,103 +1,69 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import logging
 import re
-import subprocess
 from pathlib import Path
 
-from ..models import Block, Document, Section
+from PIL import Image
+
+try:  # PyMuPDF >= 1.24 exposes the canonical `pymupdf` module.
+    import pymupdf
+except ImportError:  # pragma: no cover - compatibility with older wheels
+    import fitz as pymupdf
+
+from ..models import Block, Document
 from .clean import clean_lines, is_toc_page
 from .docx_parser import _slug, build_sections
+from .image_filter import inspect_image
 
+
+logger = logging.getLogger(__name__)
 
 NUMBERED_HEADING = re.compile(r"^(\d+(?:\.\d+){0,3})\s+([А-ЯЁA-Z][^\n]{1,140})$")
 BULLET = re.compile(r"^\s*(?:[•●▪◦o]|[-–—]|\d+[.)])\s+")
-TABLE_SPLIT = re.compile(r"\s{2,}")
-NUMERIC_CELL = re.compile(r"\d")
+BARE_BULLET = re.compile(r"^\s*[•●▪◦]\s*$")
+
+# Vertical gaps larger than this are treated as paragraph breaks. PyMuPDF
+# returns one block per paragraph; the gap keeps footer lines adjacent while
+# still separating real paragraphs.
+BLOCK_GAP = 3.0
+
+WEB_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
 
 
 def parse_pdf(path: Path, images_dir: Path, version: str) -> Document:
-    raw = subprocess.run(
-        ["pdftotext", "-layout", str(path), "-"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    pages = raw.split("\f")
-    if pages and not pages[-1].strip():
-        pages.pop()
+    """Parse a PDF without external tools (no pdftotext/pdfimages/poppler)."""
 
     images_dir.mkdir(parents=True, exist_ok=True)
-    page_images = _extract_images(path, images_dir, _slug(path.stem))
     blocks: list[Block] = []
     title = path.stem
 
-    for page_no, page_text in enumerate(pages, start=1):
-        lines = page_text.splitlines()
-        if page_no == 1:
-            first = next((ln.strip() for ln in lines if ln.strip()), "")
-            if first:
-                title = first
-        if is_toc_page(lines):
-            continue
+    with pymupdf.open(path) as doc:
+        page_images = _extract_images(doc, images_dir)
+        page_count = doc.page_count
 
-        cleaned = clean_lines(lines)
-        # PDF table heuristics are intentionally disabled for now: Word exports
-        # lose column boundaries and produce misleading rows. DOCX tables are
-        # parsed structurally; PDF text remains a fallback.
-        table_ranges: list[tuple[int, int]] = []
-        table_lines: set[int] = set()
-
-        table_index = 0
-        idx = 0
-        while idx < len(cleaned):
-            line = cleaned[idx]
-            if idx in table_lines:
-                start, end = next((s, e) for s, e in table_ranges if s <= idx < e)
-                rows = _table_rows(cleaned[start:end])
-                if rows:
-                    blocks.append(Block(kind="table", table=rows, page=page_no))
-                idx = end
+        for page_no, page in enumerate(doc, start=1):
+            lines = _page_lines(page)
+            if page_no == 1:
+                first = next((line.strip() for line in lines if line.strip()), "")
+                if first:
+                    title = first
+            if is_toc_page(lines):
                 continue
 
-            stripped = line.strip()
-            if not stripped:
-                idx += 1
-                continue
-
-            match = NUMBERED_HEADING.match(line) if not line.startswith(" ") else None
-            if match and len(stripped) < 150 and not stripped.endswith((".", ":", ";")):
-                blocks.append(Block(kind="heading", text=stripped, level=match.group(1).count(".") + 1, page=page_no))
-                idx += 1
-                continue
-
-            if BULLET.match(line):
-                blocks.append(Block(kind="list", text=stripped, page=page_no))
-                idx += 1
-                continue
-
-            # Join wrapped paragraph lines until a blank line or a structural line.
-            buffer = [stripped]
-            idx += 1
-            while idx < len(cleaned):
-                nxt = cleaned[idx]
-                if not nxt.strip() or idx in table_lines or BULLET.match(nxt):
-                    break
-                if not nxt.startswith(" ") and NUMBERED_HEADING.match(nxt):
-                    break
-                buffer.append(nxt.strip())
-                idx += 1
-            blocks.append(Block(kind="paragraph", text=" ".join(buffer), page=page_no))
-
-        for image_block in page_images.get(page_no, []):
-            image_block.page = page_no
-            blocks.append(image_block)
+            blocks.extend(_blocks_from_lines(clean_lines(lines), page_no))
+            for image_block in page_images.get(page_no, []):
+                image_block.page = page_no
+                blocks.append(image_block)
 
     sections = build_sections(blocks, fallback_title=title)
     for section in sections:
         for block in section.blocks:
             if block.kind == "image" and not block.caption:
                 block.caption = f"Иллюстрация к разделу «{section.title}»"
+
     return Document(
         doc_id=_slug(path.stem),
         title=title,
@@ -105,103 +71,207 @@ def parse_pdf(path: Path, images_dir: Path, version: str) -> Document:
         source_type="pdf",
         version=version,
         sections=sections,
-        page_count=len(pages),
-        metadata={"images": sum(len(v) for v in page_images.values())},
+        page_count=page_count,
+        metadata={"images": sum(len(items) for items in page_images.values())},
     )
 
 
-def _table_ranges(lines: list[str]) -> list[tuple[int, int]]:
-    ranges: list[tuple[int, int]] = []
-    start = 0
-    while start < len(lines):
-        if not _is_table_line(lines[start]):
-            start += 1
+def _page_lines(page) -> list[str]:
+    """Return page lines in reading order, preserving heading indentation."""
+
+    page_blocks = page.get_text("dict", sort=True).get("blocks", [])
+    left = min(
+        (
+            line["bbox"][0]
+            for block in page_blocks
+            if block.get("type") == 0
+            for line in block.get("lines", [])
+            if _line_text(line).strip()
+        ),
+        default=0.0,
+    )
+
+    lines: list[str] = []
+    previous_bottom: float | None = None
+    for block in page_blocks:
+        bbox = block.get("bbox") or (0.0, 0.0, 0.0, 0.0)
+        if block.get("type") != 0:
+            # Image blocks are added separately; keep the surrounding text
+            # paragraphs from being glued together across the image.
+            if lines and lines[-1] != "":
+                lines.append("")
+            previous_bottom = bbox[3]
             continue
-        end = start
-        while end < len(lines) and _is_table_line(lines[end]):
-            end += 1
-        if end - start >= 2:
-            ranges.append((start, end))
-        start = end
-    return ranges
+
+        if lines and previous_bottom is not None and bbox[1] - previous_bottom > BLOCK_GAP:
+            if lines[-1] != "":
+                lines.append("")
+
+        block_lines: list[tuple[str, float]] = []
+        for line in block.get("lines", []):
+            text = _line_text(line)
+            if text.strip():
+                block_lines.append((text, line["bbox"][0]))
+
+        for text, x0 in _merge_bullets(block_lines):
+            indent = " " if x0 > left + 6.0 else ""
+            lines.append(f"{indent}{text}")
+        previous_bottom = bbox[3]
+
+    return lines
 
 
-def _is_table_line(line: str) -> bool:
-    stripped = line.strip()
-    if not stripped or BULLET.match(stripped):
-        return False
-    cells = [c for c in TABLE_SPLIT.split(stripped) if c.strip()]
-    return len(cells) >= 3 and any(NUMERIC_CELL.search(c) for c in cells)
+def _line_text(line: dict) -> str:
+    text = "".join(span.get("text", "") for span in line.get("spans", []))
+    return text.replace("\u00a0", " ").rstrip()
 
 
-def _table_rows(lines: list[str]) -> list[list[str]]:
-    rows: list[list[str]] = []
-    for line in lines:
-        cells = [c.strip() for c in TABLE_SPLIT.split(line.strip()) if c.strip()]
-        if len(cells) >= 2:
-            rows.append(cells)
-    return rows
+def _merge_bullets(lines: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Merge a standalone bullet glyph with the wrapped lines that follow it.
+
+    PyMuPDF emits bullet markers as their own line, unlike `pdftotext -layout`
+    which keeps the marker and text on one line. The rest of the parser expects
+    the latter shape.
+    """
+
+    merged: list[tuple[str, float]] = []
+    pending: tuple[str, float] | None = None
+
+    for text, x0 in lines:
+        if BARE_BULLET.match(text):
+            if pending is not None:
+                merged.append(pending)
+            pending = (text.strip(), x0)
+        elif pending is not None:
+            pending = (f"{pending[0]} {text.strip()}", pending[1])
+        else:
+            merged.append((text, x0))
+
+    if pending is not None:
+        merged.append(pending)
+    return merged
 
 
-def _extract_images(path: Path, images_dir: Path, prefix: str) -> dict[int, list[Block]]:
-    result: dict[int, list[Block]] = {}
-    try:
-        listing = subprocess.run(
-            ["pdfimages", "-list", str(path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return result
+def _blocks_from_lines(lines: list[str], page_no: int) -> list[Block]:
+    """Turn cleaned text lines into headings, list items and paragraphs."""
 
-    page_has_images: set[int] = set()
-    for line in listing.splitlines():
-        parts = line.split()
-        if len(parts) < 5 or not parts[0].isdigit():
+    blocks: list[Block] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped:
+            index += 1
             continue
-        page = int(parts[0])
-        kind = parts[2]
-        try:
-            width, height = int(parts[3]), int(parts[4])
-        except ValueError:
-            continue
-        if kind == "smask" or width < 100 or height < 60:
-            continue
-        page_has_images.add(page)
 
-    for page in sorted(page_has_images):
-        out_prefix = images_dir / f"{prefix}-p{page}"
-        for old in images_dir.glob(f"{prefix}-p{page}-*"):
-            old.unlink()
-        try:
-            subprocess.run(
-                ["pdfimages", "-png", "-f", str(page), "-l", str(page), str(path), str(out_prefix)],
-                check=True,
-                capture_output=True,
-            )
-        except (OSError, subprocess.CalledProcessError):
-            continue
-        blocks: list[Block] = []
-        for candidate in sorted(images_dir.glob(f"{prefix}-p{page}-*")):
-            blob = candidate.read_bytes()
-            if len(blob) < 2000:
-                candidate.unlink()
-                continue
-            digest = hashlib.sha256(blob).hexdigest()[:16]
-            target = images_dir / f"{digest}.png"
-            if not target.exists():
-                candidate.replace(target)
-            else:
-                candidate.unlink()
+        match = NUMBERED_HEADING.match(line) if not line.startswith(" ") else None
+        if match and len(stripped) < 150 and not stripped.endswith((".", ":", ";")):
             blocks.append(
                 Block(
-                    kind="image",
-                    image_path=str(target),
-                    caption="",
-                    meta={"sha256": hashlib.sha256(blob).hexdigest(), "page": page, "source": "pdf"},
+                    kind="heading",
+                    text=stripped,
+                    level=match.group(1).count(".") + 1,
+                    page=page_no,
                 )
             )
+            index += 1
+            continue
+
+        if BULLET.match(line):
+            blocks.append(Block(kind="list", text=stripped, page=page_no))
+            index += 1
+            continue
+
+        # Join wrapped paragraph lines until a blank line or a structural line.
+        buffer = [stripped]
+        index += 1
+        while index < len(lines):
+            nxt = lines[index]
+            if not nxt.strip() or BULLET.match(nxt):
+                break
+            if not nxt.startswith(" ") and NUMBERED_HEADING.match(nxt):
+                break
+            buffer.append(nxt.strip())
+            index += 1
+        blocks.append(Block(kind="paragraph", text=" ".join(buffer), page=page_no))
+
+    return blocks
+
+
+def _extract_images(doc, images_dir: Path) -> dict[int, list[Block]]:
+    """Extract embedded raster images with PyMuPDF and filter out noise."""
+
+    result: dict[int, list[Block]] = {}
+    seen: dict[int, tuple[Path, str] | None] = {}
+
+    for page_no, page in enumerate(doc, start=1):
+        infos = page.get_images(full=True)
+        masks = {info[1] for info in infos if len(info) > 1 and info[1]}
+        blocks: list[Block] = []
+
+        for info in infos:
+            xref = info[0]
+            if not xref or xref in masks:
+                continue
+            if xref in seen:
+                cached = seen[xref]
+                if cached is None:
+                    continue
+                target, digest = cached
+                blocks.append(_image_block(target, page_no, digest))
+                continue
+
+            try:
+                extracted = doc.extract_image(xref)
+                blob = extracted.get("image", b"")
+                ext = str(extracted.get("ext", "png")).lower()
+            except Exception as exc:  # malformed PDFs can raise many types
+                logger.debug("skip PDF image xref=%s on page %s: %s", xref, page_no, exc)
+                seen[xref] = None
+                continue
+
+            verdict = inspect_image(blob)
+            if not verdict.ok:
+                logger.debug(
+                    "skip PDF image xref=%s on page %s: %s",
+                    xref,
+                    page_no,
+                    verdict.reason,
+                )
+                seen[xref] = None
+                continue
+
+            digest = hashlib.sha256(blob).hexdigest()
+            target = _save_image(blob, ext, images_dir, digest[:16])
+            seen[xref] = (target, digest)
+            blocks.append(_image_block(target, page_no, digest))
+
         if blocks:
-            result[page] = blocks
+            result[page_no] = blocks
+
     return result
+
+
+def _save_image(blob: bytes, ext: str, images_dir: Path, stem: str) -> Path:
+    if ext in WEB_IMAGE_EXTENSIONS:
+        target = images_dir / f"{stem}.{ext}"
+        if not target.exists():
+            target.write_bytes(blob)
+        return target
+
+    # Formats such as JPX/JBIG2 are not reliably supported by browsers or
+    # vision APIs, so normalize them to PNG.
+    target = images_dir / f"{stem}.png"
+    if not target.exists():
+        with Image.open(io.BytesIO(blob)) as image:
+            image.save(target, "PNG")
+    return target
+
+
+def _image_block(path: Path, page_no: int, digest: str) -> Block:
+    return Block(
+        kind="image",
+        image_path=str(path),
+        caption="",
+        meta={"sha256": digest, "page": page_no, "source": "pdf"},
+    )

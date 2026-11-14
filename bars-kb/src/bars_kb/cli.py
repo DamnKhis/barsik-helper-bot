@@ -2,16 +2,44 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sys
 from pathlib import Path
+
+# Allow `python src/bars_kb/cli.py ...` without installing the package.
+if __package__ in {None, ""}:
+    import runpy
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    runpy.run_module("bars_kb.cli", run_name="__main__")
+    raise SystemExit(0)
 
 from .config import load_settings
 from .eval.runner import run_eval
 from .pipeline import ingest
 
 
+LOG_FORMAT = "[%(asctime)s] %(levelname)s - %(name)s - %(message)s"
+logger = logging.getLogger("bars_kb.cli")
+
+
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format=LOG_FORMAT,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bars-kb", description="BARS documentation ingestion pipeline")
+    parser.add_argument(
+        "--log-level",
+        default=os.getenv("LOG_LEVEL", "INFO"),
+        help="Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_ingest = sub.add_parser("ingest", help="Build the knowledge base from a local folder")
@@ -29,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("fixtures", help="Generate DOCX test fixtures")
 
     args = parser.parse_args(argv)
+    _configure_logging(args.log_level)
     settings = load_settings()
 
     if args.command in {"ingest", "sync"}:
@@ -38,29 +67,33 @@ def main(argv: list[str] | None = None) -> int:
 
             source = sync_github(settings)
         manifest = ingest(settings, source=source, export=not getattr(args, "no_export", False))
-        print(f"build: {manifest['build_id']}")
-        print(f"collection: {manifest['collection']}")
-        print(f"manifest: {settings.data_dir / 'manifest.json'}")
+        logger.info("build: %s", manifest["build_id"])
+        logger.info("collection: %s", manifest["collection"])
+        logger.info("manifest: %s", settings.data_dir / "manifest.json")
         return 0
 
     if args.command == "status":
         path = settings.data_dir / "manifest.json"
         if not path.exists():
-            print("No build yet. Run: bars-kb ingest")
+            logger.error("No build yet. Run: bars-kb ingest")
             return 1
-        print(path.read_text(encoding="utf-8"))
+        logger.info("%s", path.read_text(encoding="utf-8"))
         return 0
 
     if args.command == "eval":
-        report = run_eval(settings, golden=args.golden, top_k=args.top_k)
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        try:
+            report = run_eval(settings, golden=args.golden, top_k=args.top_k)
+        except RuntimeError as exc:
+            logger.error("%s", exc)
+            return 1
+        logger.info("%s", json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report.get("questions", 0) else 1
 
     if args.command == "fixtures":
         from .fixtures import make_fixtures
 
         make_fixtures(settings)
-        print(f"fixtures written to {settings.data_dir / 'fixtures'}")
+        logger.info("fixtures written to %s", settings.data_dir / "fixtures")
         return 0
 
     return 1
