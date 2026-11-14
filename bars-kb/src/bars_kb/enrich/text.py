@@ -26,19 +26,20 @@ def enrich_text(
     if llm is None or settings.mock_llm:
         return _fallback(title, text)
     key = cache.key("text", title, text[:4000])
-    cached = cache.get(key)
-    if cached:
-        return cached
-    user = f"Раздел: {' > '.join(path) or title}\n\nТекст:\n{text[:12000]}"
-    result = llm.complete_json(SYSTEM_TEXT, user)
-    result = {
-        "summary": str(result.get("summary", ""))[:1200],
-        "questions": [str(x)[:300] for x in result.get("questions", [])][:8],
-        "entities": [str(x)[:120] for x in result.get("entities", [])][:30],
-        "steps": [str(x)[:500] for x in result.get("steps", [])][:20],
-    }
-    cache.set(key, result)
-    return result
+    with cache.lock(key):
+        cached = cache.get(key)
+        if cached:
+            return cached
+        user = f"Раздел: {' > '.join(path) or title}\n\nТекст:\n{text[:12000]}"
+        result = llm.complete_json(SYSTEM_TEXT, user)
+        result = {
+            "summary": str(result.get("summary", ""))[:1200],
+            "questions": [str(x)[:300] for x in result.get("questions", [])][:8],
+            "entities": [str(x)[:120] for x in result.get("entities", [])][:30],
+            "steps": [str(x)[:500] for x in result.get("steps", [])][:20],
+        }
+        cache.set(key, result)
+        return result
 
 
 def _fallback(title: str, text: str) -> dict:

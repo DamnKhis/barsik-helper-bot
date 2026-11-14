@@ -43,6 +43,7 @@ class Settings:
     chunk_max_chars: int = 1400
     chunk_overlap_chars: int = 180
     parent_max_chars: int = 6000
+    enrichment_workers: int = 4
     github_repo: str = ""
     github_branch: str = "main"
     github_token: str = ""
@@ -106,6 +107,7 @@ def load_settings(root: Path | None = None) -> Settings:
         chunk_max_chars=i("CHUNK_MAX_CHARS", 1400),
         chunk_overlap_chars=i("CHUNK_OVERLAP_CHARS", 180),
         parent_max_chars=i("PARENT_MAX_CHARS", 6000),
+        enrichment_workers=i("ENRICHMENT_WORKERS", 4),
         github_repo=s("GITHUB_REPO", ""),
         github_branch=s("GITHUB_BRANCH", "main"),
         github_token=s("GITHUB_TOKEN", ""),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import logging
 import shutil
 from collections import Counter
 from datetime import datetime, timezone
@@ -20,6 +21,8 @@ from .store.qdrant_store import QdrantStore, vector_to_json
 
 
 PIPELINE_VERSION = "0.1.0"
+
+logger = logging.getLogger(__name__)
 
 
 def iter_sources(path: Path) -> list[Path]:
@@ -67,7 +70,7 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
 
     for index, path in enumerate(files, start=1):
         sha = file_sha256(path)
-        print(f"[{index}/{len(files)}] parse {path.name}")
+        logger.info("[%d/%d] parse %s", index, len(files), path.name)
         document = parse_document(path, settings.images_dir, version=sha[:16])
         portable_path = _portable_path(settings, path)
         document.source_path = portable_path
@@ -85,7 +88,11 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
         chunks = chunker.document_chunks(document)
         for chunk in chunks:
             chunk.meta["build_id"] = build_id
-        print(f"    sections={len(document.sections)} chunks={len(chunks)}")
+        logger.info(
+            "    sections=%d chunks=%d",
+            len(document.sections),
+            len(chunks),
+        )
         documents.append(document)
         all_chunks.extend(chunks)
         document_records.append(
@@ -103,13 +110,13 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
             }
         )
 
-    print(f"embedding {len(all_chunks)} chunks with {settings.embedding_provider}")
+    logger.info("embedding %d chunks with %s", len(all_chunks), settings.embedding_provider)
     texts = [chunk.enriched_text for chunk in all_chunks]
     dense_vectors = embedder.embed_documents(texts)
     vocab = build_vocab(texts)
     sparse_vectors = [encode_sparse(text, vocab) for text in texts]
 
-    print(f"writing Qdrant collection {collection}")
+    logger.info("writing Qdrant collection %s", collection)
     store = QdrantStore(settings, collection)
     try:
         store.recreate()
@@ -162,7 +169,7 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
     if export:
         write_json(settings.dist_dir / build_id / "manifest.json", manifest)
         write_checksums(settings.dist_dir / build_id)
-    print(json.dumps(manifest["counts"], ensure_ascii=False))
+    logger.info("counts: %s", json.dumps(manifest["counts"], ensure_ascii=False))
     return manifest
 
 

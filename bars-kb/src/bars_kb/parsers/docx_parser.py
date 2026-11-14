@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from pathlib import Path
 
 from ..models import Block, Document, Section
-from .clean import clean_lines, is_toc_page
+from .image_filter import inspect_image
+
+
+logger = logging.getLogger(__name__)
 
 
 def _slug(text: str) -> str:
@@ -133,7 +137,9 @@ def _paragraph_images(paragraph, doc, images_dir: Path) -> list[Block]:
         if part is None:
             continue
         blob = part.blob
-        if len(blob) < 500:
+        verdict = inspect_image(blob)
+        if not verdict.ok:
+            logger.debug("skip DOCX image %s: %s", rid, verdict.reason)
             continue
         ext = _image_ext(blob)
         digest = hashlib.sha256(blob).hexdigest()[:16]
