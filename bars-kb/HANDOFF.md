@@ -154,6 +154,7 @@ KB_EXPORT_DIR=bars-kb/dist
 # положить новые PDF/DOCX в docs/source
 bars-kb sync              # пересоберёт, только если документы изменились
 bars-kb sync --force      # пересобрать принудительно
+bars-kb sync --eval       # + прогнать golden set и записать eval_report.json
 bars-kb sync --publish    # пересобрать + commit/push dist/
 ```
 
@@ -169,8 +170,8 @@ bars-kb sync --github
 
 Для автоматического обновления `dist/` при изменениях документации на GitHub
 используется workflow `.github/workflows/update-kb.yml`. Он запускается на push
-в `docs/source/**`, выполняет `bars-kb sync --source docs/source --publish` и
-коммитит изменившийся `dist/` + `dist/LATEST` обратно в ту же ветку. Нужен
+в `docs/source/**`, выполняет `bars-kb sync --source docs/source --publish --eval`
+и коммитит изменившийся `dist/` + `dist/LATEST` обратно в ту же ветку. Нужен
 секрет `QWEN_API_KEY`; без него workflow падает, чтобы не опубликовать
 mock/hash-сборку.
 

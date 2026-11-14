@@ -76,6 +76,8 @@ def ingest(
     source: Path | None = None,
     export: bool = True,
     keep: int = 2,
+    evaluate: bool = False,
+    eval_top_k: int = 8,
 ) -> dict:
     source = source or settings.inbox
     files = iter_sources(source)
@@ -213,6 +215,20 @@ def ingest(
     if export:
         write_json(settings.dist_dir / build_id / "manifest.json", manifest)
         write_checksums(settings.dist_dir / build_id)
+    if evaluate and export:
+        try:
+            from .eval.runner import run_eval
+
+            report = run_eval(settings, top_k=eval_top_k)
+            logger.info(
+                "eval: hit@1=%.4f hit@3=%.4f hit@5=%.4f mrr=%.4f",
+                report["hit@1"],
+                report["hit@3"],
+                report["hit@5"],
+                report["mrr"],
+            )
+        except Exception as exc:
+            logger.warning("eval failed; publishing without eval_report: %s", exc)
     logger.info("counts: %s", json.dumps(manifest["counts"], ensure_ascii=False))
     return manifest
 

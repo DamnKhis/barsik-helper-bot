@@ -65,12 +65,14 @@ def main(argv: list[str] | None = None) -> int:
     p_ingest.add_argument("--no-export", action="store_true")
     p_ingest.add_argument("--keep", type=int, default=2, help="Builds to keep in dist/ (default: 2)")
     p_ingest.add_argument("--force", action="store_true", help="Rebuild even if documents are unchanged")
+    p_ingest.add_argument("--eval", action="store_true", help="Run retrieval eval after the build")
 
     p_sync = sub.add_parser("sync", help="Sync local folder or GitHub docs and rebuild")
     p_sync.add_argument("--source", type=Path, default=None)
     p_sync.add_argument("--github", action="store_true", help="Download docs from GitHub first")
     p_sync.add_argument("--keep", type=int, default=2, help="Builds to keep in dist/ (default: 2)")
     p_sync.add_argument("--force", action="store_true", help="Rebuild even if documents are unchanged")
+    p_sync.add_argument("--eval", action="store_true", help="Run retrieval eval after the build")
     p_sync.add_argument("--publish", action="store_true", help="Commit and push the updated dist/")
     p_sync.add_argument("--no-push", action="store_true", help="With --publish: commit without pushing")
     p_sync.add_argument("--allow-mock", action="store_true", help="Allow publishing a mock/hash build")
@@ -121,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
                 source=source,
                 export=do_export,
                 keep=args.keep,
+                evaluate=getattr(args, "eval", False),
             )
 
         logger.info("build: %s", manifest["build_id"])

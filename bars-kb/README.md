@@ -163,6 +163,9 @@ bars-kb sync
 
 # то же + commit/push обновлённого dist
 bars-kb sync --publish
+
+# пересборка с прогоном golden set и eval_report.json
+bars-kb sync --eval
 ```
 
 `sync` сравнивает digest содержимого документов с текущей сборкой. Если
@@ -175,9 +178,9 @@ checksums, а старые сборки удаляются (`--keep 2` по ум
 Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
 запускается при изменении `docs/source/**` (и вручную через `workflow_dispatch`):
 
-1. ставит пакет и запускает `bars-kb sync --source docs/source --publish`;
-2. если документы изменились — пересобирает KB и коммитит `dist/` + `dist/LATEST`
-   обратно в ту же ветку;
+1. ставит пакет и запускает `bars-kb sync --source docs/source --publish --eval`;
+2. если документы изменились — пересобирает KB, считает hit@k/MRR и коммитит
+   `dist/` + `dist/LATEST` обратно в ту же ветку;
 3. если не изменились — ничего не коммитит.
 
 Нужен repository secret `QWEN_API_KEY`. Без него workflow падает, чтобы не
