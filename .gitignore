@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Секреты и данные
+.env
+data/
+*.db
+
+# Исходники документации (NDA организаторов — в репозиторий не коммитить)
+docs/*.docx
+docs/*.pdf

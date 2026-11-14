@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Аналитика поддержки — БАРС-Офис</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --ink: #1c2530; --muted: #6b7a8c;
+    --accent: #0b64c8; --ok: #2e9e5b; --warn: #d64545; --border: #e3e8ee;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 18px 28px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .updated { font-size: 12px; color: var(--muted); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  .cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .card { background: var(--card); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--border); }
+  .card .value { font-size: 24px; font-weight: 700; }
+  .card .label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid #eef2f6; }
+  .low { color: var(--warn); font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  .badge.ok { background: #e6f5ec; color: var(--ok); }
+  .badge.partial { background: #fdf0e6; color: #c77b28; }
+  .empty { color: var(--muted); }
+  @media (max-width: 860px) { .cards { grid-template-columns: repeat(3, 1fr); } .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Аналитика поддержки БАРС-Офис</h1>
+  <span class="updated" id="updated">—</span>
+</header>
+<div class="wrap">
+  <div class="cards">
+    <div class="card"><div class="value" id="total">—</div><div class="label">Всего запросов</div></div>
+    <div class="card"><div class="value" id="today">—</div><div class="label">За сегодня</div></div>
+    <div class="card"><div class="value" id="auto">—</div><div class="label">Автоответы, %</div></div>
+    <div class="card"><div class="value" id="esc">—</div><div class="label">Эскалации, %</div></div>
+    <div class="card"><div class="value" id="conf">—</div><div class="label">Ср. уверенность</div></div>
+    <div class="card"><div class="value" id="lat">—</div><div class="label">Ср. время, мс</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Запросы за последние 24 часа</h2>
+      <canvas id="hourChart" height="180"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Топ-темы запросов</h2>
+      <canvas id="topicChart" height="180"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Слепые зоны базы знаний (низкая уверенность / эскалации)</h2>
+      <table>
+        <thead><tr><th>Время</th><th>Вопрос</th><th>Уверенность</th></tr></thead>
+        <tbody id="blind"></tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h2>Последние реиндексации базы знаний</h2>
+      <table>
+        <thead><tr><th>Время</th><th>Источник</th><th>Файлов</th><th>Статус</th></tr></thead>
+        <tbody id="reindex"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const hourChart = new Chart(document.getElementById('hourChart'), {
+  type: 'bar',
+  data: { labels: [], datasets: [{ label: 'Запросов', data: [], backgroundColor: '#0b64c8' }] },
+  options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+});
+const topicChart = new Chart(document.getElementById('topicChart'), {
+  type: 'bar',
+  data: { labels: [], datasets: [{ label: 'Запросов', data: [], backgroundColor: '#2e9e5b' }] },
+  options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+});
+
+function escapeHtml(s) {
+  return (s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch('/stats')).json();
+    document.getElementById('total').textContent = s.total;
+    document.getElementById('today').textContent = s.today;
+    document.getElementById('auto').textContent = s.auto_answer_rate;
+    document.getElementById('esc').textContent = s.escalation_rate;
+    document.getElementById('conf').textContent = s.avg_confidence;
+    document.getElementById('lat').textContent = s.avg_latency_ms;
+    document.getElementById('updated').textContent = 'Обновлено ' + new Date().toLocaleTimeString('ru-RU');
+
+    hourChart.data.labels = Object.keys(s.by_hour);
+    hourChart.data.datasets[0].data = Object.values(s.by_hour);
+    hourChart.update();
+
+    topicChart.data.labels = s.top_topics.map(t => t.topic);
+    topicChart.data.datasets[0].data = s.top_topics.map(t => t.count);
+    topicChart.update();
+
+    document.getElementById('blind').innerHTML = s.blind_spots.map(r => {
+      const conf = (r.confidence === null || r.confidence === undefined) ? '—' : r.confidence;
+      const cls = (r.confidence !== null && r.confidence !== undefined && r.confidence < s.confidence_threshold) ? 'low' : '';
+      return `<tr><td>${escapeHtml((r.ts || '').slice(5, 16))}</td><td>${escapeHtml(r.question)}</td><td class="${cls}">${conf}</td></tr>`;
+    }).join('') || '<tr><td colspan="3" class="empty">Пока пусто — бот уверен во всех ответах</td></tr>';
+
+    document.getElementById('reindex').innerHTML = s.reindex_log.map(r =>
+      `<tr><td>${escapeHtml(r.ts)}</td><td>${escapeHtml(r.source)}</td><td>${r.files}</td>` +
+      `<td><span class="badge ${escapeHtml(r.status || '')}">${escapeHtml(r.status || '—')}</span></td></tr>`
+    ).join('') || '<tr><td colspan="4" class="empty">Реиндексаций ещё не было</td></tr>';
+  } catch (e) {
+    document.getElementById('updated').textContent = 'Ошибка загрузки /stats';
+  }
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
