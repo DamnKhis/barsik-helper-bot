@@ -7,7 +7,7 @@
 
 ```text
 dist/<build_id>/
-├── manifest.json              # версия, counts, модель эмбеддингов, документы, checksums
+├── manifest.json              # версия, counts, модели, документы
 ├── collection_config.json     # имя коллекции, alias, named vectors, payload-индексы
 ├── chunks.jsonl.gz            # id + dense_vector + sparse_vector + payload
 ├── documents.jsonl            # документы и их версии
@@ -31,6 +31,17 @@ previous:   bars_kb_prev
 dense:  1024, Cosine   (Qwen text-embedding-v4 в финальной сборке)
 bm25:   sparse, IDF    (точные строки: !>, 2334-26, ссылки)
 ```
+
+Модели (один ключ `QWEN_API_KEY`):
+
+| Задача | Модель |
+|---|---|
+| текст, JSON, таблицы | `qwen3.8-flash` |
+| скриншоты и схемы | `qwen3.8-flash` (мультимодальный) |
+| dense-векторы | `text-embedding-v4`, dim 1024 |
+
+`qwen3.8-flash` — чат/мультимодальная модель, у неё нет embeddings-эндпоинта,
+поэтому векторы считает отдельная embedding-модель на том же ключе DashScope.
 
 Payload-поля:
 
@@ -113,7 +124,9 @@ python examples/reembed_from_export.py \
 Не смешивайте векторы разных моделей в одной коллекции.
 
 Это согласованная точка: следующий разработчик эмбеддит запросы Qwen `text-embedding-v4`
-(dim 1024), как и коллекция. Если его модель изменится — используется скрипт выше.
+(dim 1024), как и коллекция, и использует `qwen3.8-flash` для генерации ответов.
+Оба вызова идут через один `QWEN_API_KEY` (можно разные ключи, но провайдер один).
+Если embedding-модель изменится — используется скрипт выше.
 
 ## 6. Обновление документации
 

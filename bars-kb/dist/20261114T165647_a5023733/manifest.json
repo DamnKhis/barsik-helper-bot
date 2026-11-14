@@ -1,13 +1,19 @@
 {
-  "build_id": "20261114T142318_a5023733",
-  "collection": "bars_kb_20261114T142318_a5023733",
+  "build_id": "20261114T165647_a5023733",
+  "collection": "bars_kb_20261114T165647_a5023733",
   "alias": "bars_kb_current",
-  "created_at": "2026-11-14T14:23:21.366617+00:00",
+  "created_at": "2026-11-14T16:56:52.077572+00:00",
   "pipeline_version": "0.1.0",
   "embedding": {
     "provider": "hash",
     "model": "hash-lexical",
     "dim": 1024
+  },
+  "enrichment": {
+    "llm_provider": "mock",
+    "llm_model": "mock",
+    "vision_provider": "mock",
+    "vision_model": "mock"
   },
   "sparse": {
     "type": "bm25",
@@ -67,7 +73,7 @@
     "mode": "embedded"
   },
   "export": {
-    "path": "dist/20261114T142318_a5023733",
+    "path": "dist/20261114T165647_a5023733",
     "chunks": 108,
     "images": 42
   }

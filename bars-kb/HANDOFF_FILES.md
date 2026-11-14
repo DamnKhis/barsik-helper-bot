@@ -5,6 +5,9 @@
 
 Актуальная сборка: последняя папка `dist/<build_id>/` (около 2 МБ).
 
+Модели: **Qwen3.8-Flash** (`qwen3.8-flash`) — текст, JSON, таблицы и скриншоты;
+**Qwen `text-embedding-v4`** (dim 1024) — dense-векторы. Один `QWEN_API_KEY`.
+
 ## Пакет `dist/<build_id>/`
 
 | Файл | Формат | Кому / зачем |
@@ -31,6 +34,7 @@
 | `examples/kb_client.py` | клиент: эмбеддинг запроса + dense/sparse + RRF |
 | `examples/reembed_from_export.py` | пересчитать dense-векторы под другую модель |
 | `HANDOFF.md` | контракт: схема payload, восстановление, обновление |
+| `PROJECT_FILES.md` | полная карта модулей: кто за что отвечает и что делает каждый файл |
 | `README.md` | запуск пайплайна и пересборка |
 | `docs/source/` | исходные PDF, вход пайплайна |
 | `presentation/slides.md` | слайды защиты (Marp) |

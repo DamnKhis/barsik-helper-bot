@@ -1,51 +1,53 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 from .base import LLMProvider, VisionProvider
 from .http import extract_json, post_json
 
 
-class DeepSeekLLM(LLMProvider):
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
+class QwenChat(LLMProvider, VisionProvider):
+    """Qwen3.8-Flash via the OpenAI-compatible DashScope endpoint.
+
+    One model handles text/JSON enrichment and image analysis. The same API
+    key is used for embeddings (a separate embedding model, because chat
+    models do not expose an embeddings endpoint).
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        enable_thinking: bool = False,
+    ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.enable_thinking = enable_thinking
 
     def complete_json(self, system: str, user: str) -> dict:
         response = post_json(
             f"{self.base_url}/chat/completions",
-            {
-                "model": self.model,
-                "messages": [
+            self._payload(
+                [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
-                ],
-                "temperature": 0.1,
-                "response_format": {"type": "json_object"},
-            },
+                ]
+            ),
             {"Authorization": f"Bearer {self.api_key}"},
         )
         content = response["choices"][0]["message"]["content"]
         return extract_json(content)
 
-
-class QwenVision(VisionProvider):
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-
     def describe_image(self, image_path: Path, prompt: str) -> dict:
-        import base64
-
         mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
         encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
         response = post_json(
             f"{self.base_url}/chat/completions",
-            {
-                "model": self.model,
-                "messages": [
+            self._payload(
+                [
                     {
                         "role": "user",
                         "content": [
@@ -56,13 +58,25 @@ class QwenVision(VisionProvider):
                             },
                         ],
                     }
-                ],
-                "temperature": 0.1,
-            },
+                ]
+            ),
             {"Authorization": f"Bearer {self.api_key}"},
         )
         content = response["choices"][0]["message"]["content"]
         return extract_json(content)
+
+    def _payload(self, messages: list[dict]) -> dict:
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": 4096,
+            "response_format": {"type": "json_object"},
+        }
+        if not self.enable_thinking:
+            # Qwen3.8 defaults to xhigh reasoning; extraction does not need it.
+            payload["enable_thinking"] = False
+        return payload
 
 
 class QwenEmbeddings:

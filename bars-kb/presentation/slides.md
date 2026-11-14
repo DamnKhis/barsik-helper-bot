@@ -46,7 +46,7 @@ PDF / DOCX / MD / TXT
   chunker/  ── text | table | image | FAQ, parent/child
         │
         ▼
-  enrich/   ── DeepSeek (текст) + Qwen-VL (скриншоты)
+  enrich/   ── Qwen3.8-Flash: текст, JSON, таблицы, скриншоты
         │
         ▼
   embeddings/ ── dense 1024 + BM25 sparse
@@ -166,15 +166,16 @@ dist/<build_id>/
 # Ограничения и что дальше
 
 **Ограничения:**
-- без ключей Qwen-VL скриншоты описаны контекстно, без OCR;
+- без ключа Qwen скриншоты описаны контекстно, без OCR;
 - PDF-таблицы не структурированы;
 - embedded Qdrant не делает snapshot → основной формат `chunks.jsonl.gz`.
 
 **Что делаем при появлении ключей:**
-1. `.env`: `LLM_PROVIDER=deepseek`, `VISION_PROVIDER=qwen`, `EMBEDDING_PROVIDER=qwen`.
+1. `.env`: заполнить `QWEN_API_KEY` (остальное уже указывает на Qwen3.8-Flash).
 2. `bars-kb ingest` — пересбор с реальными описаниями и эмбеддингами.
 3. Проверить визуальные чанки и повторить eval.
 
 **Согласовано со следующим разработчиком:**
-Qwen `text-embedding-v4`, dim 1024. Вектор запроса обязан считаться этой же моделью.
-Если модель всё-таки изменится — используйте `examples/reembed_from_export.py`.
+генерация — `qwen3.8-flash`, эмбеддинги — Qwen `text-embedding-v4`, dim 1024.
+Один провайдер и один `QWEN_API_KEY`. Вектор запроса обязан считаться той же
+embedding-моделью, что и коллекция. Если модель изменится — `examples/reembed_from_export.py`.

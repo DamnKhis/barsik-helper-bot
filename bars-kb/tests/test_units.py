@@ -7,12 +7,15 @@ from pathlib import Path
 
 from bars_kb.chunker import Chunker
 from bars_kb.config import load_settings
+from bars_kb.embeddings import build_embedder
 from bars_kb.embeddings.hash_embedder import HashEmbedder
 from bars_kb.embeddings.sparse import build_vocab, encode_sparse
 from bars_kb.eval.runner import _is_relevant
 from bars_kb.models import table_to_markdown
 from bars_kb.parsers.clean import clean_text
 from bars_kb.parsers.docx_parser import parse_docx
+from bars_kb.providers import build_llm, build_vision
+from bars_kb.providers.qwen import QwenChat, QwenEmbeddings
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "data" / "fixtures"
@@ -83,6 +86,40 @@ class ChunkerTest(unittest.TestCase):
         self.assertTrue(any("!=" in chunk.raw_text for chunk in faq))
         text = [chunk for chunk in chunks if chunk.chunk_type == "text"]
         self.assertTrue(all(chunk.parent_id and chunk.parent_text for chunk in text))
+
+
+class QwenProviderTest(unittest.TestCase):
+    def test_one_key_switches_all_models(self) -> None:
+        settings = load_settings(ROOT)
+        without = replace(settings, qwen_api_key="")
+        self.assertIsNone(build_llm(without))
+        self.assertIsNone(build_vision(without))
+        self.assertIsInstance(build_embedder(without), HashEmbedder)
+
+        with_key = replace(
+            settings,
+            qwen_api_key="test-key",
+            llm_provider="qwen",
+            vision_provider="qwen",
+            embedding_provider="qwen",
+        )
+        llm = build_llm(with_key)
+        vision = build_vision(with_key)
+        embedder = build_embedder(with_key)
+        self.assertIsInstance(llm, QwenChat)
+        self.assertIsInstance(vision, QwenChat)
+        self.assertIsInstance(embedder, QwenEmbeddings)
+        self.assertEqual(llm.model, "qwen3.8-flash")
+        self.assertEqual(vision.model, "qwen3.8-flash")
+        self.assertEqual(embedder.model, "text-embedding-v4")
+        self.assertEqual(embedder.dim, 1024)
+
+    def test_payload_uses_json_mode(self) -> None:
+        chat = QwenChat("key", "https://example.invalid/v1", "qwen3.8-flash")
+        payload = chat._payload([{"role": "user", "content": "test"}])
+        self.assertEqual(payload["model"], "qwen3.8-flash")
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertFalse(payload["enable_thinking"])
 
 
 class EvalRelevanceTest(unittest.TestCase):

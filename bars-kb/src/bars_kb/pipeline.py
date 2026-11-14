@@ -136,6 +136,12 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
             "model": settings.qwen_embedding_model if not settings.mock_embedding else "hash-lexical",
             "dim": settings.embedding_dim,
         },
+        "enrichment": {
+            "llm_provider": "mock" if settings.mock_llm else "qwen",
+            "llm_model": "mock" if settings.mock_llm else settings.qwen_llm_model,
+            "vision_provider": "mock" if settings.mock_vision else "qwen",
+            "vision_model": "mock" if settings.mock_vision else settings.qwen_vision_model,
+        },
         "sparse": {"type": "bm25", "vocab_size": len(vocab), "modifier": "idf"},
         "documents": document_records,
         "counts": {
@@ -295,6 +301,12 @@ def _write_package_readme(
         settings.qwen_embedding_model if not settings.mock_embedding else "hash-lexical"
     )
     embedding_provider = settings.embedding_provider if not settings.mock_embedding else "hash"
+    enrichment_model = (
+        f"`{settings.qwen_llm_model}`" if not settings.mock_llm else "`mock`"
+    )
+    vision_model = (
+        f"`{settings.qwen_vision_model}`" if not settings.mock_vision else "`mock`"
+    )
     text = f"""# BARS KB — пакет передачи
 
 Собран пайплайном `bars-kb` версии `{PIPELINE_VERSION}`.
@@ -307,6 +319,8 @@ def _write_package_readme(
 | предыдущая версия | `{settings.collection_prefix}_prev` |
 | создан | {datetime.now(timezone.utc).isoformat()} |
 | эмбеддинги | `{embedding_provider}` / `{embedding_model}`, dim `{settings.embedding_dim}` |
+| текст и JSON | {enrichment_model} |
+| скриншоты и схемы | {vision_model} |
 | sparse | BM25, IDF |
 | snapshot | `{snapshot or "нет (embedded Qdrant)"}` |
 

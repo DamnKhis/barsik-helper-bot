@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..config import Settings
-from ..providers.deepseek_qwen import QwenEmbeddings
+from ..providers.qwen import QwenEmbeddings
 from .hash_embedder import HashEmbedder
 
 

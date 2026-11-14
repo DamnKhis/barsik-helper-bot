@@ -4,12 +4,14 @@
 
 | Параметр | Значение |
 |---|---|
-| build_id | `20261114T142318_a5023733` |
-| коллекция | `bars_kb_20261114T142318_a5023733` |
+| build_id | `20261114T165647_a5023733` |
+| коллекция | `bars_kb_20261114T165647_a5023733` |
 | alias | `bars_kb_current` |
 | предыдущая версия | `bars_kb_prev` |
-| создан | 2026-11-14T14:23:21.364581+00:00 |
+| создан | 2026-11-14T16:56:52.075090+00:00 |
 | эмбеддинги | `hash` / `hash-lexical`, dim `1024` |
+| текст и JSON | `mock` |
+| скриншоты и схемы | `mock` |
 | sparse | BM25, IDF |
 | snapshot | `нет (embedded Qdrant)` |
 
@@ -45,19 +47,19 @@
 ```bash
 # Qdrant-сервер
 python examples/restore_from_export.py \
-  --export 20261114T142318_a5023733 \
+  --export 20261114T165647_a5023733 \
   --qdrant-url http://127.0.0.1:6333 \
   --alias bars_kb_current
 
 # локальный embedded Qdrant
 python examples/restore_from_export.py \
-  --export 20261114T142318_a5023733 --qdrant-path data/qdrant-restored
+  --export 20261114T165647_a5023733 --qdrant-path data/qdrant-restored
 ```
 
 ## Проверка целостности
 
 ```bash
-cd 20261114T142318_a5023733 && sha256sum -c checksums.sha256
+cd 20261114T165647_a5023733 && sha256sum -c checksums.sha256
 ```
 
 ## Поиск
