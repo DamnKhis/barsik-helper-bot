@@ -79,6 +79,7 @@ docs/
   source/       исходные документы для базы знаний
   context/      бриф и критерии (не в базе знаний)
 dist/<build>/   handoff-пакет
+HANDOFF_FILES.md  что именно отдаём: список файлов и их назначение
 examples/       restore + query + reembed примеры
 presentation/   слайды защиты (Marp)
 tests/          unit-тесты (unittest)

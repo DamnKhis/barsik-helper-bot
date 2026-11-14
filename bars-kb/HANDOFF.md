@@ -16,8 +16,9 @@ dist/<build_id>/
 ├── golden_retrieval.jsonl     # 13 контрольных вопросов
 ├── eval_report.json           # hit@1/3/5, MRR
 ├── sparse_vocab.json          # словарь BM25 (нужен для query-time sparse)
+├── checksums.sha256           # SHA256 всех файлов пакета
 ├── build_info.json
-└── README_HANDOFF.md          # этот файл
+└── README_HANDOFF.md          # инструкция внутри пакета
 ```
 
 ## 2. Коллекция Qdrant

@@ -4,10 +4,12 @@ import gzip
 import hashlib
 import json
 import shutil
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .chunker import Chunker
+from .checksums import write_checksums
 from .config import Settings
 from .embeddings import build_embedder
 from .embeddings.sparse import build_vocab, encode_sparse
@@ -153,6 +155,7 @@ def ingest(settings: Settings, source: Path | None = None, export: bool = True) 
     write_json(settings.data_dir / "sparse_vocab.json", vocab)
     if export:
         write_json(settings.dist_dir / build_id / "manifest.json", manifest)
+        write_checksums(settings.dist_dir / build_id)
     print(json.dumps(manifest["counts"], ensure_ascii=False))
     return manifest
 
@@ -233,12 +236,15 @@ def export_build(
     write_json(out / "collection_config.json", collection_config)
     write_json(out / "manifest.json", {"build_id": build_id, "collection": collection, "documents": document_records})
 
-    for name in ("golden_retrieval.jsonl", "eval_report.json", "sparse_vocab.json"):
+    for name in ("golden_retrieval.jsonl", "sparse_vocab.json"):
         source = settings.data_dir / name
         if source.exists():
             shutil.copy2(source, out / name)
 
     write_json(out / "build_info.json", {"build_id": build_id, "collection": collection, "snapshot": snapshot})
+    _write_package_readme(
+        out, settings, build_id, collection, chunks, document_records, snapshot
+    )
     try:
         portable_out = out.relative_to(settings.root).as_posix()
     except ValueError:
@@ -273,3 +279,93 @@ def _portable_path(settings: Settings, path: Path) -> str:
         return path.resolve().relative_to(settings.root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def _write_package_readme(
+    out: Path,
+    settings: Settings,
+    build_id: str,
+    collection: str,
+    chunks: list[Chunk],
+    document_records: list[dict],
+    snapshot: str | None,
+) -> None:
+    counts = Counter(chunk.chunk_type for chunk in chunks)
+    embedding_model = (
+        settings.qwen_embedding_model if not settings.mock_embedding else "hash-lexical"
+    )
+    embedding_provider = settings.embedding_provider if not settings.mock_embedding else "hash"
+    text = f"""# BARS KB — пакет передачи
+
+Собран пайплайном `bars-kb` версии `{PIPELINE_VERSION}`.
+
+| Параметр | Значение |
+|---|---|
+| build_id | `{build_id}` |
+| коллекция | `{collection}` |
+| alias | `{settings.collection_prefix}_current` |
+| предыдущая версия | `{settings.collection_prefix}_prev` |
+| создан | {datetime.now(timezone.utc).isoformat()} |
+| эмбеддинги | `{embedding_provider}` / `{embedding_model}`, dim `{settings.embedding_dim}` |
+| sparse | BM25, IDF |
+| snapshot | `{snapshot or "нет (embedded Qdrant)"}` |
+
+## Состав
+
+| Файл | Что внутри |
+|---|---|
+| `chunks.jsonl.gz` | по одному JSON на чанк: `id`, `dense_vector`, `sparse_vector`, `payload` |
+| `documents.jsonl` | документы, версии, sha256, число разделов и чанков |
+| `images.jsonl` | связь `chunk_id` → файл изображения |
+| `images/` | {counts.get("screenshot", 0)} скриншотов и {counts.get("diagram", 0)} схема |
+| `collection_config.json` | имя коллекции, alias, named vectors, модель эмбеддингов |
+| `manifest.json` | полный манифест сборки, counts, документы, Qdrant |
+| `build_info.json` | краткая информация о сборке |
+| `sparse_vocab.json` | словарь BM25; обязателен для sparse-поиска |
+| `golden_retrieval.jsonl` | контрольные вопросы для eval |
+| `eval_report.json` | метрики hit@1/3/5, MRR и примеры выдачи (после `bars-kb eval`) |
+| `checksums.sha256` | SHA256 всех файлов пакета |
+
+## Данные
+
+- документов: **{len(document_records)}**
+- чанков: **{len(chunks)}**
+- text: {counts.get("text", 0)}, faq: {counts.get("faq", 0)}, table: {counts.get("table", 0)},
+  screenshot: {counts.get("screenshot", 0)}, diagram: {counts.get("diagram", 0)}
+
+Подробная схема payload — в `HANDOFF.md` проекта. Кратко: поиск идёт по `enriched_text`,
+ответ и цитата — по `raw_text`; `parent_text` даёт контекст раздела; `section_path` и
+`page` — для ссылки на источник.
+
+## Восстановление
+
+```bash
+# Qdrant-сервер
+python examples/restore_from_export.py \\
+  --export {out.name} \\
+  --qdrant-url http://127.0.0.1:6333 \\
+  --alias {settings.collection_prefix}_current
+
+# локальный embedded Qdrant
+python examples/restore_from_export.py \\
+  --export {out.name} --qdrant-path data/qdrant-restored
+```
+
+## Проверка целостности
+
+```bash
+cd {out.name} && sha256sum -c checksums.sha256
+```
+
+## Поиск
+
+```bash
+python examples/query.py "Почему не работает фильтр !> 200?" --top-k 5
+```
+
+## Модель эмбеддингов
+
+Вектор запроса обязан считаться той же моделью: **`{embedding_model}`**, dim **{settings.embedding_dim}**.
+Если модель другая — `examples/reembed_from_export.py` пересчитает только dense-векторы.
+"""
+    (out / "README_HANDOFF.md").write_text(text, encoding="utf-8")

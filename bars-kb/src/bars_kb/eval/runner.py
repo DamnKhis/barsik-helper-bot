@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Settings
+from ..checksums import write_checksums
 from ..embeddings import build_embedder
 from ..embeddings.sparse import encode_sparse
 from ..store.qdrant_store import QdrantStore
@@ -91,6 +92,7 @@ def run_eval(settings: Settings, golden: Path | None = None, top_k: int = 8) -> 
     build_dist = settings.dist_dir / str(manifest.get("build_id", ""))
     if build_dist.exists():
         (build_dist / "eval_report.json").write_text(serialized, encoding="utf-8")
+        write_checksums(build_dist)
     return report
 
 
