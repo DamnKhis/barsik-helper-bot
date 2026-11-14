@@ -1,0 +1,30 @@
+{
+  "collection": "bars_kb_20261114T134932_a5023733",
+  "alias": "bars_kb_current",
+  "vectors": {
+    "dense": {
+      "size": 1024,
+      "distance": "Cosine"
+    },
+    "bm25": {
+      "modifier": "idf"
+    }
+  },
+  "embedding": {
+    "provider": "hash",
+    "model": "hash-lexical",
+    "dim": 1024,
+    "normalize": true
+  },
+  "sparse": {
+    "type": "bm25",
+    "language": "ru"
+  },
+  "payload_indexes": [
+    "doc_id",
+    "chunk_type",
+    "version",
+    "tags"
+  ],
+  "snapshot": null
+}

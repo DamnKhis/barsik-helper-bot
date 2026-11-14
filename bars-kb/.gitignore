@@ -1,0 +1,19 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+.DS_Store
+
+# Generated artifacts (rebuilt by `bars-kb ingest`)
+data/qdrant/
+data/images/
+data/cache/
+data/builds/
+data/github/
+
+# The handoff package in dist/ is kept on purpose.
