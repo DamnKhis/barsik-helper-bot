@@ -1,0 +1,1 @@
+# эндпоинты POST /webhooks/github и /webhooks/gitlab
