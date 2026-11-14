@@ -23,22 +23,11 @@ services:
     volumes:
       - ./docs:/app/docs:ro
       - ./data:/app/data
+      - ./uploaded_docs:/app/uploaded_docs
     ports:
       - "8000:8000"
     depends_on:
       - qdrant
-      - redis
-    restart: unless-stopped
-
-  bot:
-    build: .
-    command: python -m bot.main
-    env_file: .env
-    environment:
-      API_URL: http://api:8000
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      - api
       - redis
     restart: unless-stopped
 

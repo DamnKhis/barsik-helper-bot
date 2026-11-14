@@ -5,7 +5,7 @@ down:
 	docker compose down
 
 logs:
-	docker compose logs -f api bot
+	docker compose logs -f api
 
 index:
 	docker compose exec api python -m indexer.run_index --docs-dir /app/docs
