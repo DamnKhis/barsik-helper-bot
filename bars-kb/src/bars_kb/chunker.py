@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from .config import Settings
@@ -16,6 +20,25 @@ from .providers.base import LLMProvider, VisionProvider
 
 
 NAMESPACE = uuid.UUID("6f0f6a4e-4f4b-4e2e-9a6d-2a1c0b7d9e11")
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _SectionPlan:
+    section: Section
+    parent_id: str
+    parent_text: str
+    text_chunks: list[Chunk]
+
+
+@dataclass
+class _AssetTask:
+    plan_index: int
+    plan: _SectionPlan
+    kind: str
+    ordinal: int
+    block: Block
 
 
 class Chunker:
@@ -31,17 +54,38 @@ class Chunker:
         self.cache = EnrichmentCache(settings.data_dir / "cache")
 
     def document_chunks(self, document: Document) -> list[Chunk]:
+        plans = [
+            plan
+            for section in document.sections
+            if (plan := self._prepare_section(document, section)) is not None
+        ]
+
+        tasks: list[_AssetTask] = []
+        for plan_index, plan in enumerate(plans):
+            for ordinal, block in enumerate(plan.section.tables):
+                if block.table:
+                    tasks.append(_AssetTask(plan_index, plan, "table", ordinal, block))
+            for ordinal, block in enumerate(plan.section.images):
+                tasks.append(_AssetTask(plan_index, plan, "image", ordinal, block))
+
+        assets = self._run_asset_tasks(document, tasks)
+        by_plan: dict[int, list[Chunk]] = {}
+        for task, chunk in zip(tasks, assets):
+            if chunk is not None:
+                by_plan.setdefault(task.plan_index, []).append(chunk)
+
         chunks: list[Chunk] = []
-        for section in document.sections:
-            chunks.extend(self._section_chunks(document, section))
+        for plan_index, plan in enumerate(plans):
+            chunks.extend(plan.text_chunks)
+            chunks.extend(by_plan.get(plan_index, []))
         chunks.extend(self._faq_chunks(document))
         return _dedupe(chunks)
 
-    def _section_chunks(self, document: Document, section: Section) -> list[Chunk]:
+    def _prepare_section(self, document: Document, section: Section) -> _SectionPlan | None:
         text_blocks = [b for b in section.blocks if b.kind in {"paragraph", "list"} and b.text.strip()]
         section_text = "\n\n".join(b.text for b in text_blocks).strip()
         if not section_text and not section.tables and not section.images:
-            return []
+            return None
 
         enrichment = enrich_text(
             self.settings,
@@ -53,8 +97,8 @@ class Chunker:
         )
         parent_text = self._parent_text(document, section, enrichment, section_text)
         parent_id = _uid(document.doc_id, "|".join(section.path), "parent")
-        chunks: list[Chunk] = []
 
+        text_chunks: list[Chunk] = []
         if section_text:
             for ordinal, piece in enumerate(
                 _pack_text(section_text, self.settings.chunk_max_chars, self.settings.chunk_overlap_chars)
@@ -66,13 +110,12 @@ class Chunker:
                     enrichment.get("summary", ""),
                     enrichment.get("questions", []),
                 )
-                raw = piece
-                chunks.append(
+                text_chunks.append(
                     self._chunk(
                         document=document,
                         section=section,
                         chunk_type="text",
-                        raw_text=raw,
+                        raw_text=piece,
                         enriched_text=enriched,
                         summary=enrichment.get("summary", ""),
                         parent_id=parent_id,
@@ -81,108 +124,140 @@ class Chunker:
                         entities=enrichment.get("entities", []),
                     )
                 )
+        return _SectionPlan(section, parent_id, parent_text, text_chunks)
 
-        for table_index, block in enumerate(section.tables):
-            if not block.table:
-                continue
-            table_enrichment = enrich_table(
-                self.settings,
-                self.llm,
-                self.cache,
-                section.title,
-                block.table,
-            )
-            markdown = table_to_markdown(block.table)
-            raw = f"Таблица: {section.title}\n\n{markdown}"
-            enriched = _join_enriched(
-                document.title,
-                section.path,
-                raw,
-                table_enrichment.get("description", ""),
-                table_enrichment.get("questions", []),
-            )
-            chunks.append(
-                self._chunk(
-                    document=document,
-                    section=section,
-                    chunk_type="table",
-                    raw_text=raw,
-                    enriched_text=enriched,
-                    summary=table_enrichment.get("description", ""),
-                    parent_id=parent_id,
-                    parent_text=parent_text,
-                    ordinal=table_index,
-                    entities=table_enrichment.get("entities", []),
-                    table_json={
-                        "headers": block.table[0] if block.table else [],
-                        "rows": block.table[1:] if len(block.table) > 1 else [],
-                    },
-                )
-            )
+    def _run_asset_tasks(self, document: Document, tasks: list[_AssetTask]) -> list[Chunk | None]:
+        if not tasks:
+            return []
 
-        for image_index, block in enumerate(section.images):
-            image_path = Path(block.image_path)
-            if not image_path.exists():
-                continue
-            kind = "diagram" if _is_diagram(section, block) else "screenshot"
-            image_enrichment = enrich_image(
-                self.settings,
-                self.vision,
-                self.cache,
-                image_path,
-                block.caption or section.title,
-                f"{document.title} > {' > '.join(section.path)}",
-                kind_hint=kind,
-            )
-            description = image_enrichment.get("description", "")
-            ocr_text = image_enrichment.get("ocr_text", "")
-            elements = image_enrichment.get("ui_elements", [])
-            element_text = "\n".join(
-                f"- {e.get('label', '')} ({e.get('location', '')})" for e in elements if isinstance(e, dict)
-            )
-            raw = "\n\n".join(
-                part
-                for part in [
-                    f"Изображение: {block.caption or section.title}",
-                    description,
-                    f"Текст на изображении:\n{ocr_text}" if ocr_text else "",
-                    f"Элементы интерфейса:\n{element_text}" if element_text else "",
-                ]
-                if part
-            )
-            enriched = _join_enriched(
-                document.title,
-                section.path,
-                raw,
+        workers = max(1, min(self.settings.enrichment_workers, len(tasks)))
+        if workers == 1:
+            return [self._build_asset_chunk(document, task) for task in tasks]
+
+        logger.info(
+            "enriching %d assets for %s with %d workers",
+            len(tasks),
+            document.doc_id,
+            workers,
+        )
+        build = partial(self._build_asset_chunk, document)
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="bars-kb-enrich") as pool:
+            return list(pool.map(build, tasks))
+
+    def _build_asset_chunk(self, document: Document, task: _AssetTask) -> Chunk | None:
+        if task.kind == "table":
+            return self._table_chunk(document, task.plan, task.block, task.ordinal)
+        return self._image_chunk(document, task.plan, task.block, task.ordinal)
+
+    def _table_chunk(
+        self,
+        document: Document,
+        plan: _SectionPlan,
+        block: Block,
+        ordinal: int,
+    ) -> Chunk:
+        section = plan.section
+        table_enrichment = enrich_table(
+            self.settings,
+            self.llm,
+            self.cache,
+            section.title,
+            block.table,
+        )
+        markdown = table_to_markdown(block.table)
+        raw = f"Таблица: {section.title}\n\n{markdown}"
+        enriched = _join_enriched(
+            document.title,
+            section.path,
+            raw,
+            table_enrichment.get("description", ""),
+            table_enrichment.get("questions", []),
+        )
+        return self._chunk(
+            document=document,
+            section=section,
+            chunk_type="table",
+            raw_text=raw,
+            enriched_text=enriched,
+            summary=table_enrichment.get("description", ""),
+            parent_id=plan.parent_id,
+            parent_text=plan.parent_text,
+            ordinal=ordinal,
+            entities=table_enrichment.get("entities", []),
+            table_json={
+                "headers": block.table[0] if block.table else [],
+                "rows": block.table[1:] if len(block.table) > 1 else [],
+            },
+        )
+
+    def _image_chunk(
+        self,
+        document: Document,
+        plan: _SectionPlan,
+        block: Block,
+        ordinal: int,
+    ) -> Chunk | None:
+        section = plan.section
+        image_path = Path(block.image_path)
+        if not image_path.exists():
+            return None
+
+        kind = "diagram" if _is_diagram(section, block) else "screenshot"
+        image_enrichment = enrich_image(
+            self.settings,
+            self.vision,
+            self.cache,
+            image_path,
+            block.caption or section.title,
+            f"{document.title} > {' > '.join(section.path)}",
+            kind_hint=kind,
+        )
+        description = image_enrichment.get("description", "")
+        ocr_text = image_enrichment.get("ocr_text", "")
+        elements = image_enrichment.get("ui_elements", [])
+        element_text = "\n".join(
+            f"- {e.get('label', '')} ({e.get('location', '')})" for e in elements if isinstance(e, dict)
+        )
+        raw = "\n\n".join(
+            part
+            for part in [
+                f"Изображение: {block.caption or section.title}",
                 description,
-                image_enrichment.get("questions", []),
-            )
-            relative_image = _relative_image(self.settings, image_path)
-            chunks.append(
-                self._chunk(
-                    document=document,
-                    section=section,
-                    chunk_type=kind,
-                    raw_text=raw,
-                    enriched_text=enriched,
-                    summary=description,
-                    parent_id=parent_id,
-                    parent_text=parent_text,
-                    ordinal=image_index,
-                    entities=[],
-                    image_path=relative_image,
-                    image_url=_image_url(self.settings, relative_image),
-                    diagram_mermaid=image_enrichment.get("diagram_mermaid", ""),
-                    meta={
-                        "ocr_text": ocr_text,
-                        "ui_elements": elements,
-                        "nodes": image_enrichment.get("nodes", []),
-                        "edges": image_enrichment.get("edges", []),
-                        "image_sha256": block.meta.get("sha256", ""),
-                    },
-                )
-            )
-        return chunks
+                f"Текст на изображении:\n{ocr_text}" if ocr_text else "",
+                f"Элементы интерфейса:\n{element_text}" if element_text else "",
+            ]
+            if part
+        )
+        enriched = _join_enriched(
+            document.title,
+            section.path,
+            raw,
+            description,
+            image_enrichment.get("questions", []),
+        )
+        relative_image = _relative_image(self.settings, image_path)
+        return self._chunk(
+            document=document,
+            section=section,
+            chunk_type=kind,
+            raw_text=raw,
+            enriched_text=enriched,
+            summary=description,
+            parent_id=plan.parent_id,
+            parent_text=plan.parent_text,
+            ordinal=ordinal,
+            entities=[],
+            image_path=relative_image,
+            image_url=_image_url(self.settings, relative_image),
+            diagram_mermaid=image_enrichment.get("diagram_mermaid", ""),
+            meta={
+                "ocr_text": ocr_text,
+                "ui_elements": elements,
+                "nodes": image_enrichment.get("nodes", []),
+                "edges": image_enrichment.get("edges", []),
+                "image_sha256": block.meta.get("sha256", ""),
+            },
+        )
 
     def _faq_chunks(self, document: Document) -> list[Chunk]:
         chunks: list[Chunk] = []

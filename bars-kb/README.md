@@ -1,57 +1,114 @@
-# BARS KB — ingestion & Qdrant dataset
+# BARS KB Ingestion Pipeline
 
-Наша часть проекта: превращаем документацию БАРС (PDF/DOCX/MD) в чистый, структурированный
-датасет в Qdrant и отдаём его следующему разработчику. Мы **не делаем** API для бота,
-генерацию ответов и Telegram-интеграцию.
+Пайплайн загрузки документации БАРС в Qdrant. Превращаем PDF/DOCX/MD/TXT в чистый,
+структурированный датасет: чанки с текстом, изображениями, таблицами, FAQ-слоем и
+векторами для гибридного поиска.
 
-## Что уже работает
+Это **только ingestion + Qdrant**. Мы не делаем HTTP API, генерацию ответов и
+Telegram-интеграцию — это зона следующего разработчика. Результат передаётся пакетом
+`dist/<build_id>/` и подробно описан в [HANDOFF.md](HANDOFF.md).
 
-- парсинг DOCX (заголовки, списки, таблицы, изображения) и PDF (текст, изображения, чистка футера);
-- очистка мусора Word/PDF (`Ошибка! Используйте вкладку...`, колонтитулы, оглавление);
-- чанкинг parent/child с breadcrumb;
-- типы чанков: `text`, `faq`, `table`, `diagram`, `screenshot`;
-- FAQ-слой по ключевым тест-кейсам (только из текста документов);
-- обогащение текста, таблиц и скриншотов — **Qwen3.8-Flash** (`qwen/qwen3.8-flash`) по API;
-- эмбеддинги: hash-lexical для работы без ключей, Qwen `qwen/qwen3-embedding-8b` при наличии ключа
-  (**согласованная модель для финальной сборки: dim 1024**);
-- Qdrant: dense + sparse BM25, alias `bars_kb_current`;
+## Что умеет
+
+- **PDF** — нативный парсинг через `PyMuPDF` (без `pdftotext`, `pdfimages` и `poppler-utils`);
+- **DOCX** — заголовки, списки, таблицы, изображения через `python-docx`;
+- **MD/TXT** — простые текстовые источники;
+- очистка мусора Word/PDF (колонтитулы, оглавление, `Ошибка! Используйте вкладку...`);
+- чанкинг parent/child с breadcrumb и типами `text`, `faq`, `table`, `diagram`, `screenshot`;
+- фильтрация изображений через `Pillow`: отсеиваются картинки меньше 50×50, системные
+  иконки и квадратные заглушки/скрепки, чтобы не тратить токены VLM;
+- обогащение текста, таблиц и изображений через **Qwen3.8-Flash** (`qwen/qwen3.8-flash`);
+- параллельные запросы к LLM/VLM через `ThreadPoolExecutor` (`ENRICHMENT_WORKERS`);
+- эмбеддинги Qwen `qwen/qwen3-embedding-8b` (dim 1024) или hash-lexical без ключа;
+- Qdrant: dense + sparse BM25, alias `bars_kb_current`, предыдущая версия `bars_kb_prev`;
 - экспорт `chunks.jsonl.gz` с векторами, `documents.jsonl`, `manifest.json`, `images/`;
-- переэмбеддинг готового экспорта чужой моделью (`examples/reembed_from_export.py`);
-- offline-eval по golden set;
-- локальная синхронизация и заготовка GitHub-синхронизации.
+- offline-eval по golden set и переэмбеддинг готового экспорта другой моделью.
 
-## Быстрый старт
+## Требования
+
+- **Python 3.10+**;
+- больше **никаких системных пакетов**: `poppler-utils`, `pdftotext` и `pdfimages`
+  не нужны. `PyMuPDF` и `Pillow` ставятся как обычные Python-зависимости и работают
+  на Linux, macOS и Windows, в том числе внутри Docker;
+- для реального обогащения — ключ Qwen API (OpenRouter или DashScope).
+
+## Установка
 
 ```bash
 python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .
-cp .env.example .env
-
-# без ключей — mock/hash режим
-.venv/bin/bars-kb ingest
-.venv/bin/bars-kb eval
-.venv/bin/bars-kb status
-
-# когда появится ключ
-# .env: QWEN_API_KEY=...
-# OpenRouter: qwen/qwen3.8-flash — текст/JSON/скриншоты;
-# qwen/qwen3-embedding-8b — векторы
-.venv/bin/bars-kb ingest
 ```
 
-То же через `make`: `make install`, `make ingest`, `make eval`, `make test`,
-`make restore` (нужен `QDRANT_URL`), `make query`.
-
-## Qdrant-сервер
-
-Локально по умолчанию используется embedded Qdrant (`data/qdrant`). Для сервера:
+Опционально, только если нужны локальные эмбеддинги без API:
 
 ```bash
-docker compose up -d
-# .env: QDRANT_URL=http://127.0.0.1:6333
+.venv/bin/pip install -e ".[local-embeddings]"
 ```
 
-## Команды
+> Windows: интерпретатор и pip лежат в `.venv\Scripts\`, поэтому вместо
+> `.venv/bin/python` используйте `.venv\Scripts\python`. Системные пакеты
+> (Visual C++ Build Tools, poppler) не нужны: PyMuPDF и Pillow ставятся колёсами.
+
+## Настройка окружения
+
+```bash
+cp .env.example .env
+```
+
+В `.env` достаточно заполнить один ключ:
+
+```dotenv
+QWEN_API_KEY=...
+```
+
+Шаблон [`.env.example`](.env.example) уже содержит настройки OpenRouter:
+
+```dotenv
+QWEN_BASE_URL=https://openrouter.ai/api/v1
+QWEN_LLM_MODEL=qwen/qwen3.8-flash
+QWEN_VISION_MODEL=qwen/qwen3.8-flash
+QWEN_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
+```
+
+Для DashScope переключите закомментированные строки в `.env.example` на
+`qwen3.8-flash` и `text-embedding-v4`.
+
+Полезные параметры:
+
+| Переменная | По умолчанию | Зачем |
+|---|---|---|
+| `QWEN_API_KEY` | пусто | без ключа включается mock/hash-режим |
+| `ENRICHMENT_WORKERS` | `4` | число параллельных запросов к LLM/VLM |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `QDRANT_PATH` | `data/qdrant` | локальный embedded Qdrant |
+| `QDRANT_URL` | пусто | если нужен Qdrant-сервер |
+
+## Запуск
+
+Через установленную команду:
+
+```bash
+.venv/bin/bars-kb ingest
+.venv/bin/bars-kb eval --top-k 8
+.venv/bin/bars-kb status
+```
+
+Или напрямую из исходников, без установки console script:
+
+```bash
+.venv/bin/python src/bars_kb/cli.py ingest
+.venv/bin/python src/bars_kb/cli.py eval --top-k 8
+.venv/bin/python src/bars_kb/cli.py status
+```
+
+Логи пишутся в формате:
+
+```text
+[2026-11-14 23:38:08] INFO - bars_kb.pipeline - [1/3] parse БП Командировка.pdf
+```
+
+### Команды
 
 | Команда | Что делает |
 |---|---|
@@ -63,11 +120,39 @@ docker compose up -d
 | `bars-kb fixtures` | сгенерировать DOCX-фикстуры |
 | `bars-kb status` | показать последний manifest |
 
+Глобальный флаг `--log-level` работает перед подкомандой:
+
+```bash
+.venv/bin/bars-kb --log-level DEBUG ingest
+```
+
+То же через `make`: `make install`, `make ingest`, `make eval`, `make test`,
+`make restore`, `make query`.
+
+## Что получается на выходе
+
+- коллекция Qdrant `bars_kb_<build_id>` и alias `bars_kb_current`;
+- пакет `dist/<build_id>/` с `chunks.jsonl.gz`, `sparse_vocab.json`, `images/`,
+  `manifest.json`, `checksums.sha256`;
+- `data/manifest.json` с последней сборкой и `data/eval_report.json` с метриками.
+
+Пакет самодостаточен: его можно восстановить в чистый Qdrant скриптом
+`examples/restore_from_export.py` и искать через `examples/kb_client.py`.
+
+## Qdrant-сервер
+
+Локально по умолчанию используется embedded Qdrant (`data/qdrant`). Для сервера:
+
+```bash
+docker compose up -d
+# .env: QDRANT_URL=http://127.0.0.1:6333
+```
+
 ## Структура
 
 ```text
 src/bars_kb/
-  parsers/      DOCX/PDF/MD → AST
+  parsers/      PDF (PyMuPDF), DOCX, MD/TXT → AST; фильтрация изображений
   enrich/       текст, таблицы, изображения, FAQ
   embeddings/   hash + Qwen
   store/        Qdrant
@@ -100,11 +185,13 @@ docker-compose.yml  Qdrant-сервер
 Для жёсткого mock-режима можно явно поставить `LLM_PROVIDER=mock`, `VISION_PROVIDER=mock`,
 `EMBEDDING_PROVIDER=hash`.
 
-## Ограничения текущего прогона
+## Ограничения
 
-- PDF-таблицы не парсятся структурно (Word-экспорт теряет границы колонок); DOCX-таблицы парсятся.
+- PDF-таблицы не парсятся структурно: Word-экспорт теряет границы колонок. DOCX-таблицы
+  парсятся структурно.
 - Без vision-ключа скриншоты получают только контекстное описание, а не OCR/разметку выносок.
-- Snapshot Qdrant в embedded-режиме недоступен; основной формат передачи — `chunks.jsonl.gz` + restore-скрипт.
+- Snapshot Qdrant в embedded-режиме недоступен; основной формат передачи — `chunks.jsonl.gz`
+  + restore-скрипт.
 
 Подробности передачи — в [HANDOFF.md](HANDOFF.md), полная карта файлов и зон
 ответственности — в [PROJECT_FILES.md](PROJECT_FILES.md).

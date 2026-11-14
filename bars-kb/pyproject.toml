@@ -6,11 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "bars-kb"
 version = "0.1.0"
 description = "Ingestion pipeline for BARS documentation knowledge base in Qdrant"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
+  "PyMuPDF>=1.24",
+  "Pillow>=10.0",
   "qdrant-client>=1.20.0",
   "python-docx>=1.2.0",
 ]
+
+[project.optional-dependencies]
+# Only needed for `examples/reembed_from_export.py --provider local`.
+local-embeddings = ["sentence-transformers>=3.0"]
 
 [project.scripts]
 bars-kb = "bars_kb.cli:main"

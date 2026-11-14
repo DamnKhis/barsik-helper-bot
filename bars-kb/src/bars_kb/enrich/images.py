@@ -54,24 +54,25 @@ def enrich_image(
     digest = hashlib.sha256(image_path.read_bytes()).hexdigest()
     prompt = PROMPT_DIAGRAM if kind_hint == "diagram" else PROMPT_VISUAL
     key = cache.key("image", digest, prompt[:100], settings.qwen_vision_model)
-    cached = cache.get(key)
-    if cached:
-        return cached
-    result = vision.describe_image(image_path, prompt + f"\n\nКонтекст: {context[:2000]}")
-    normalized = {
-        "kind": str(result.get("kind", kind_hint))[:40],
-        "description": str(result.get("description", ""))[:2000],
-        "ocr_text": str(result.get("ocr_text", ""))[:4000],
-        "ui_elements": result.get("ui_elements", [])[:50] if isinstance(result.get("ui_elements"), list) else [],
-        "nodes": result.get("nodes", [])[:100] if isinstance(result.get("nodes"), list) else [],
-        "edges": result.get("edges", [])[:200] if isinstance(result.get("edges"), list) else [],
-        "diagram_mermaid": str(result.get("diagram_mermaid", ""))[:6000],
-        "questions": [str(x)[:300] for x in result.get("questions", [])][:10]
-        if isinstance(result.get("questions"), list)
-        else [],
-    }
-    cache.set(key, normalized)
-    return normalized
+    with cache.lock(key):
+        cached = cache.get(key)
+        if cached:
+            return cached
+        result = vision.describe_image(image_path, prompt + f"\n\nКонтекст: {context[:2000]}")
+        normalized = {
+            "kind": str(result.get("kind", kind_hint))[:40],
+            "description": str(result.get("description", ""))[:2000],
+            "ocr_text": str(result.get("ocr_text", ""))[:4000],
+            "ui_elements": result.get("ui_elements", [])[:50] if isinstance(result.get("ui_elements"), list) else [],
+            "nodes": result.get("nodes", [])[:100] if isinstance(result.get("nodes"), list) else [],
+            "edges": result.get("edges", [])[:200] if isinstance(result.get("edges"), list) else [],
+            "diagram_mermaid": str(result.get("diagram_mermaid", ""))[:6000],
+            "questions": [str(x)[:300] for x in result.get("questions", [])][:10]
+            if isinstance(result.get("questions"), list)
+            else [],
+        }
+        cache.set(key, normalized)
+        return normalized
 
 
 def _fallback(caption: str, context: str, kind: str) -> dict:

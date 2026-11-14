@@ -41,7 +41,7 @@ dist/<build_id>/  → следующий разработчик
 |---|---|---|---|
 | `.env.example` | шаблон конфигурации: один `QWEN_API_KEY`, модели, Qdrant, GitHub | Config | все |
 | `.gitignore` | исключает `.venv`, `.env`, `data/qdrant`, `data/cache`, `data/images`, `data/builds`; `dist/` хранится намеренно | Infra | все |
-| `pyproject.toml` | пакет `bars-kb`, зависимости `qdrant-client` и `python-docx`, entry point CLI | Infra | все |
+| `pyproject.toml` | пакет `bars-kb`: `PyMuPDF`, `Pillow`, `qdrant-client`, `python-docx`; optional extra `local-embeddings`; entry point CLI | Infra | все |
 | `Makefile` | короткие команды: `install`, `ingest`, `eval`, `test`, `restore`, `query`, `clean` | Infra | все |
 | `docker-compose.yml` | Qdrant-сервер на портах 6333/6334 с volume | Infra | следующий разработчик |
 | `README.md` | вход в проект: запуск, команды, структура, ограничения | Docs | все |
@@ -58,17 +58,18 @@ dist/<build_id>/  → следующий разработчик
 | `models.py` | dataclass-модели `Block`, `Section`, `Document`, `Chunk`; `payload()`; `table_to_markdown()` | Parsing |
 | `parsers/__init__.py` | выбор парсера по расширению, `SUPPORTED` | Parsing |
 | `parsers/clean.py` | удаление Word/PDF-футеров, колонтитулов, строк оглавления | Parsing |
-| `parsers/pdf_parser.py` | `pdftotext -layout`, страницы, заголовки, списки, извлечение картинок через `pdfimages`; PDF-таблицы намеренно не структурируются | Parsing |
+| `parsers/image_filter.py` | Pillow-валидация: минимальный размер 50×50, отсев системных иконок и квадратных заглушек | Parsing |
+| `parsers/pdf_parser.py` | `PyMuPDF`: страницы, блоки/абзацы, заголовки, списки, извлечение картинок через `get_images`/`extract_image`; PDF-таблицы намеренно не структурируются | Parsing |
 | `parsers/docx_parser.py` | `python-docx`: заголовки/стили, списки, таблицы, изображения, сборка секций | Parsing |
 | `parsers/markdown_parser.py` | заголовки, таблицы, списки, изображения из Markdown | Parsing |
 | `parsers/text_parser.py` | простой текст → абзацы | Parsing |
-| `chunker.py` | parent/child-чанки; text/table/image/FAQ; breadcrumb; стабильные UUID; parent_text; image_path | Chunking |
+| `chunker.py` | parent/child-чанки; text/table/image/FAQ; breadcrumb; стабильные UUID; parent_text; image_path; параллельное обогащение таблиц/картинок | Chunking |
 | `enrich/__init__.py` | пакет обогащения | Enrichment |
-| `enrich/cache.py` | дисковый JSON-кэш по sha256-ключу, чтобы не платить за повторные вызовы | Enrichment |
+| `enrich/cache.py` | дисковый JSON-кэш по sha256-ключу + блокировки по ключу для параллельных воркеров | Enrichment |
 | `enrich/text.py` | промпт к Qwen3.8-Flash: summary, вопросы, сущности, шаги; fallback без ключа | Enrichment |
 | `enrich/tables.py` | описание таблицы и вопросы к ней | Enrichment |
 | `enrich/images.py` | промпты для скриншотов и схем: kind, description, OCR, UI-элементы, nodes/edges, Mermaid; fallback | Enrichment |
-| `enrich/faq.py` | FAQ-чанки по сложным тест-кейсам, строго из текста документов | Enrichment |
+| `enrich/faq.py` | Expert Knowledge Injection: FAQ-чанки по пробелам официальной документации (график работы, `!> 200`, отсутствующий реестр техники), ответы строго из текста документов | Enrichment |
 | `providers/__init__.py` | фабрики `build_llm()` и `build_vision()`: Qwen или `None` | Enrichment |
 | `providers/base.py` | протоколы `LLMProvider`, `VisionProvider`, `EmbeddingProvider` | Enrichment |
 | `providers/http.py` | HTTP POST с ретраями и извлечением JSON из ответа модели | Enrichment |
