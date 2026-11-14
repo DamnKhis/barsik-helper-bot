@@ -152,8 +152,9 @@ KB_EXPORT_DIR=bars-kb/dist
 ```
 
 `examples/kb_client.py`, `examples/restore_from_export.py` и `Retriever` сами
-читают `LATEST`. Захардкоженный `dist/2026...` не нужен. После первой пересборки
-в `dist/` остаются текущая и предыдущая сборки.
+читают `LATEST`. Захардкоженный `dist/2026...` не нужен. В `dist/` лежат текущая
+и предыдущая сборки; `bars-kb builds` покажет список, `bars-kb rollback` —
+переключит указатель.
 
 ### Локально
 
@@ -186,6 +187,10 @@ Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
 Нужен repository secret `QWEN_API_KEY`. Без него workflow падает, чтобы не
 опубликовать mock/hash-сборку поверх реальной. Публикация mock-сборки вручную
 требует явного `--allow-mock`.
+
+В Settings → Actions → General должно быть разрешено выполнение Actions
+(«Allow all actions and reusable workflows»). Если Actions выключены, GitHub
+молча не создаёт запуски, и коммит в `docs/source/` остаётся без пересборки.
 
 `workflow_dispatch` (кнопка Run workflow) доступен только когда workflow есть в
 ветке по умолчанию. До мержа он срабатывает на push в `feature/bars-kb`; правка

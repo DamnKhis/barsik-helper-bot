@@ -146,8 +146,8 @@ KB_EXPORT_DIR=bars-kb/dist
 ```
 
 `examples/kb_client.py`, `examples/restore_from_export.py` и `Retriever` читают
-`LATEST` сами. В `dist/` по умолчанию хранятся две сборки: текущая и предыдущая
-(предыдущая появляется после первой пересборки).
+`LATEST` сами. В `dist/` по умолчанию хранятся две сборки: текущая и предыдущая;
+обе уже закоммичены, поэтому откат доступен сразу.
 
 ### Локально
 
@@ -175,7 +175,8 @@ bars-kb sync --github
 в `docs/source/**`, выполняет `bars-kb sync --source docs/source --publish --eval`
 и коммитит изменившийся `dist/` + `dist/LATEST` обратно в ту же ветку. Нужен
 секрет `QWEN_API_KEY`; без него workflow падает, чтобы не опубликовать
-mock/hash-сборку.
+mock/hash-сборку. Actions должны быть включены в Settings → Actions → General,
+иначе GitHub не создаёт запуски.
 
 `workflow_dispatch` доступен только после появления workflow в ветке по
 умолчанию. Правка самого файла workflow запускает безопасный smoke-прогон:
