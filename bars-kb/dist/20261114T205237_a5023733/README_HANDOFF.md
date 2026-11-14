@@ -8,6 +8,7 @@
 | коллекция | `bars_kb_20261114T205237_a5023733` |
 | alias | `bars_kb_current` |
 | предыдущая версия | `bars_kb_prev` |
+| source digest | `f07d42a7048d7af7` |
 | создан | 2026-11-14T21:01:04.450416+00:00 |
 | эмбеддинги | `qwen` / `qwen/qwen3-embedding-8b`, dim `1024` |
 | текст и JSON | `qwen/qwen3.8-flash` |
@@ -47,13 +48,13 @@
 ```bash
 # Qdrant-сервер
 python examples/restore_from_export.py \
-  --export 20261114T205237_a5023733 \
+  --export dist \
   --qdrant-url http://127.0.0.1:6333 \
   --alias bars_kb_current
 
 # локальный embedded Qdrant
 python examples/restore_from_export.py \
-  --export 20261114T205237_a5023733 --qdrant-path data/qdrant-restored
+  --export dist --qdrant-path data/qdrant-restored
 ```
 
 ## Проверка целостности
