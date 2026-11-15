@@ -306,8 +306,6 @@ class Retriever:
         deep_link = f"https://t.me/{bot_name}?start=src_{code}_{page}"
         label = f"{doc_title}{', ' + sec_str if sec_str else ''} (стр. {page})"
         return f"📚 Источник: {label}\n🔗 Открыть страницу документа: {deep_link}"
-        label = f"{doc_title}{', ' + sec_str if sec_str else ''} (стр. {page})"
-        return f'📚 Источник: <a href="{deep_link}">{label}</a>'
 
     @staticmethod
     def _extract_chunk_text(payload: dict) -> str:
@@ -334,16 +332,17 @@ class Retriever:
         return "\n\n".join(parts)
 
     def _collect_images(self, payloads: list[dict]) -> list[str]:
+        base = self.kb.export_dir if self.kb else KB_EXPORT_DIR
         images: list[str] = []
         for p in payloads:
-            img_rel = p.get("image_path")
-            if img_rel:
-                full_path = str((self.kb.export_dir if self.kb else KB_EXPORT_DIR) / img_rel)
+            candidates: list[str] = []
+            if p.get("image_path"):
+                candidates.append(str(p["image_path"]))
+            candidates.extend(str(x) for x in (p.get("image_paths") or []))
+            for rel in candidates:
+                full_path = str(base / rel)
                 if os.path.exists(full_path) and full_path not in images:
                     images.append(full_path)
-            for old_img in p.get("image_paths", []):
-                if old_img not in images:
-                    images.append(old_img)
         return images[:3]
 
     async def _generate_llm_answer(self, query: str, context_text: str) -> tuple[str, str]:
@@ -432,7 +431,7 @@ class Retriever:
             logger.warning("Ошибка получения Топ-10 FAQ: %s", exc)
             return []
 
-    async def answer_query(self, query: str) -> RAGResponse:
+    async def answer_query(self, query: str, bot_username: str | None = None) -> RAGResponse:
         query_vec = await asyncio.to_thread(self._embed_one, query)
         vector_list = query_vec.tolist()
         is_work, is_operator_req = self._classify_intent(query, query_vec)
@@ -509,7 +508,7 @@ class Retriever:
         # 4. Ловушка жюри («Реестр техники», которого нет в БЗ)
         if is_tech_trap and payloads:
             top = payloads[0]
-            source_str = self._format_source(top)
+            source_str = self._format_source(top, bot_username)
             combined_context = "\n\n---\n\n".join(self._extract_chunk_text(p) for p in payloads[:4])
             _, llm_body = await self._generate_llm_answer(search_query, combined_context)
             return RAGResponse(
@@ -539,7 +538,7 @@ class Retriever:
             )
 
         top = payloads[0]
-        source_str = self._format_source(top)
+        source_str = self._format_source(top, bot_username)
 
         # 6. ДИАПАЗОН 0.7 - 0.4: Размытый вопрос -> CLARIFY
         if score < self.high_threshold:

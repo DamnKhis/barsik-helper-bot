@@ -5,11 +5,9 @@ RAG-модуль (app/rag/retriever.py) принадлежит другой ко
 заглушке из ai_stub.py.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.bot.services.ai_stub import get_ai_answer
@@ -18,17 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
-from dataclasses import dataclass, field
-
-@dataclass(slots=True)
-class AIResult:
-    answer: str
-    confidence: float
-    flag: str = "ANSWER"
-    need_operator: bool = False
-    source: str | None = None
-    images: list[str] = field(default_factory=list)
-
 class AIResult:
     answer: str
     flag: str = "ANSWER"
@@ -36,6 +23,7 @@ class AIResult:
     source: str | None = None
     known: bool = True
     confidence: float = 0.0
+    images: list[str] = field(default_factory=list)
 
 
 class AIService:
@@ -72,12 +60,12 @@ class AIService:
         user_id: int,
         question: str,
         context: list[dict],
+        bot_username: str | None = None,
     ) -> AIResult:
-        images = list(getattr(result, "images", []) or []).
         retriever = await self._ensure_retriever()
         if retriever is not None:
             try:
-                result = await retriever.answer_query(question)
+                result = await retriever.answer_query(question, bot_username=bot_username)
                 flag = str(getattr(result, "flag", "ANSWER"))
                 text = str(getattr(result, "answer", "") or "").strip()
                 if not text:
@@ -89,6 +77,7 @@ class AIService:
                     source=getattr(result, "source", None),
                     known=flag == "ANSWER",
                     confidence=float(getattr(result, "confidence", 0.0) or 0.0),
+                    images=list(getattr(result, "images", []) or []),
                 )
             except Exception as exc:
                 logger.warning("Ошибка RAG-ядра, fallback на заглушку: %s", exc)

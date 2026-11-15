@@ -1,13 +1,12 @@
-from aiogram import F, Router
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
-from app.bot.keyboards.reply import menu_for_role
 from pathlib import Path
 import fitz  # PyMuPDF
-from aiogram import F
-from aiogram.filters import CommandStart, CommandObject
-from aiogram.types import Message, BufferedInputFile
+from aiogram import F, Router
+from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.types import BufferedInputFile, Message
+from app.bot.keyboards.reply import menu_for_role
+
+router = Router(name="common")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SOURCE_DOCS_DIR = PROJECT_ROOT / "bars-kb" / "docs" / "source"
@@ -40,9 +39,14 @@ def _extract_pdf_page(pdf_path: Path, page_num: int) -> tuple[bytes, int]:
         return out.tobytes(), actual_page
 
 
-@router.message(CommandStart(deep_link=True, magic=F.args.startswith("src_")))
+@router.message(CommandStart(deep_link=True))
 async def handle_pdf_deep_link(message: Message, command: CommandObject) -> None:
     args = (command.args or "").strip()
+    if not args.startswith("src_"):
+        await message.answer(
+            "Здравствуйте! Я бот поддержки «БАРС-Офис». Задайте вопрос — постараюсь ответить."
+        )
+        return
     parts = args.split("_", 2)  # src_<code>_<page>
     if len(parts) != 3 or not parts[2].isdigit():
         await message.answer("Некорректная ссылка на источник документа.")
@@ -68,9 +72,6 @@ async def handle_pdf_deep_link(message: Message, command: CommandObject) -> None
         BufferedInputFile(pdf_bytes, filename=out_filename),
         caption=f"📄 Выдержка из документа «{clean_prefix.replace('_', ' ')}» (стр. {actual_page})",
     )
-
-
-router = Router(name="common")
 
 
 @router.message(Command("cancel"))
