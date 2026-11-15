@@ -32,8 +32,16 @@ for arg in "$@"; do
   esac
 done
 
-PY="$KB_DIR/.venv/bin/python"
-[ -x "$PY" ] || PY="python3"
+PY="${BARS_KB_PYTHON:-}"
+if [ -z "$PY" ]; then
+  for candidate in "$KB_DIR/.venv/bin/python" "$KB_DIR/../.venv/bin/python"; do
+    if [ -x "$candidate" ]; then
+      PY="$candidate"
+      break
+    fi
+  done
+fi
+[ -n "$PY" ] || PY="python3"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
