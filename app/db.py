@@ -18,10 +18,12 @@ import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CursorResult,
     DateTime,
     ForeignKey,
     Integer,
@@ -279,10 +281,13 @@ async def get_or_create_user(
 
 async def set_pending_manager(session: AsyncSession, telegram_id: int) -> bool:
     """Пометить заявку пользователя на права менеджера."""
-    result = await session.execute(
-        update(User)
-        .where(User.telegram_id == telegram_id, User.role == "user")
-        .values(is_pending_manager=True)
+    result = cast(
+        CursorResult,
+        await session.execute(
+            update(User)
+            .where(User.telegram_id == telegram_id, User.role == "user")
+            .values(is_pending_manager=True)
+        ),
     )
     return result.rowcount > 0
 
@@ -348,10 +353,13 @@ async def list_open_tickets(session: AsyncSession, limit: int = 50) -> list[Dial
 
 async def take_ticket(session: AsyncSession, ticket_id: int, manager_id: int) -> bool:
     """Атомарно перевести открытый тикет в работу."""
-    result = await session.execute(
-        update(DialogHistory)
-        .where(DialogHistory.id == ticket_id, DialogHistory.ticket_status == "open")
-        .values(ticket_status="in_progress", manager_id=manager_id)
+    result = cast(
+        CursorResult,
+        await session.execute(
+            update(DialogHistory)
+            .where(DialogHistory.id == ticket_id, DialogHistory.ticket_status == "open")
+            .values(ticket_status="in_progress", manager_id=manager_id)
+        ),
     )
     return result.rowcount > 0
 
@@ -363,13 +371,16 @@ async def close_ticket(
     answer: str,
 ) -> bool:
     """Закрыть тикет ответом менеджера."""
-    result = await session.execute(
-        update(DialogHistory)
-        .where(
-            DialogHistory.id == ticket_id,
-            DialogHistory.ticket_status == "in_progress",
-            DialogHistory.manager_id == manager_id,
-        )
-        .values(answer=answer, answered_by="manager", ticket_status="closed")
+    result = cast(
+        CursorResult,
+        await session.execute(
+            update(DialogHistory)
+            .where(
+                DialogHistory.id == ticket_id,
+                DialogHistory.ticket_status == "in_progress",
+                DialogHistory.manager_id == manager_id,
+            )
+            .values(answer=answer, answered_by="manager", ticket_status="closed")
+        ),
     )
     return result.rowcount > 0

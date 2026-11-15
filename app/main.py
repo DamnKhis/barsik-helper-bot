@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 
 from app.api import dashboard, health, webhooks
 from app.bot.main import create_bot, create_dispatcher
+from app.bot.services.ai_service import AIService
 from app.bot.services.redis_context import RedisContextService
 from app.config import settings
 from app.db import engine, init_async_db, init_db
@@ -23,17 +24,24 @@ async def lifespan(app: FastAPI):
     init_db(settings.db_path)
     await init_async_db()
 
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis = Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=1.0,
+        socket_timeout=1.0,
+    )
     redis_context = RedisContextService(redis)
+    ai_service = AIService()
     app.state.redis = redis
     app.state.redis_context = redis_context
+    app.state.ai_service = ai_service
     app.state.polling_task = None
     app.state.bot = None
     app.state.dispatcher = None
 
     if settings.bot_token:
         bot = create_bot()
-        dp = create_dispatcher(redis_context)
+        dp = create_dispatcher(redis_context, ai_service)
         app.state.bot = bot
         app.state.dispatcher = dp
         app.state.polling_task = asyncio.create_task(

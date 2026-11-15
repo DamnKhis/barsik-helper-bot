@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 
 from app.bot.handlers import admin, common, manager, user
 from app.bot.middlewares import DatabaseMiddleware, RoleMiddleware
+from app.bot.services.ai_service import AIService
 from app.bot.services.redis_context import RedisContextService
 from app.config import settings
 from app.db import init_async_db
@@ -22,7 +23,10 @@ def create_bot() -> Bot:
     return Bot(token=settings.bot_token)
 
 
-def create_dispatcher(redis_context: RedisContextService | None = None) -> Dispatcher:
+def create_dispatcher(
+    redis_context: RedisContextService | None = None,
+    ai_service: AIService | None = None,
+) -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
 
     dp.message.outer_middleware(DatabaseMiddleware())
@@ -37,6 +41,7 @@ def create_dispatcher(redis_context: RedisContextService | None = None) -> Dispa
 
     if redis_context is not None:
         dp.workflow_data["redis_context"] = redis_context
+    dp.workflow_data["ai_service"] = ai_service or AIService()
     return dp
 
 
@@ -49,10 +54,16 @@ async def main() -> None:
         raise RuntimeError("BOT_TOKEN не задан в .env")
 
     await init_async_db()
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis = Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=1.0,
+        socket_timeout=1.0,
+    )
     redis_context = RedisContextService(redis)
+    ai_service = AIService()
     bot = create_bot()
-    dp = create_dispatcher(redis_context)
+    dp = create_dispatcher(redis_context, ai_service)
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:

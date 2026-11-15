@@ -22,7 +22,12 @@ async def health() -> dict:
     except Exception:
         services["qdrant"] = "error"
 
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis = Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=1.0,
+        socket_timeout=1.0,
+    )
     try:
         await redis.ping()
         services["redis"] = "ok"

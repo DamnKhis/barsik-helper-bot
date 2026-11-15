@@ -1,10 +1,14 @@
+from uuid import uuid4
+
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters import RoleFilter
+from app.bot.keyboards.inline import call_operator_keyboard
 from app.bot.keyboards.reply import (
     BTN_ASK,
     BTN_EXIT_DIALOG,
@@ -12,7 +16,7 @@ from app.bot.keyboards.reply import (
     user_dialog_menu,
     user_main_menu,
 )
-from app.bot.services.ai_stub import get_ai_answer
+from app.bot.services.ai_service import AIService
 from app.bot.services.notifications import notify_admins_manager_request, notify_managers_new_ticket
 from app.bot.services.redis_context import RedisContextService
 from app.bot.states import UserStates
@@ -20,6 +24,7 @@ from app.db import User, create_dialog_entry
 
 router = Router(name="user")
 router.message.filter(RoleFilter("user"))
+router.callback_query.filter(RoleFilter("user"))
 
 
 @router.message(CommandStart())
@@ -76,10 +81,11 @@ async def request_manager(
 @router.message(UserStates.in_dialog)
 async def handle_question(
     message: Message,
+    state: FSMContext,
     session: AsyncSession,
     user: User,
-    bot: Bot,
     redis_context: RedisContextService,
+    ai_service: AIService,
 ) -> None:
     question = (message.text or "").strip()
     if not question:
@@ -87,24 +93,44 @@ async def handle_question(
         return
 
     context = await redis_context.get_context(user.telegram_id)
-    known, answer = await get_ai_answer(user.telegram_id, question, context)
+    result = await ai_service.answer(user.telegram_id, question, context)
+    await redis_context.append_pair(user.telegram_id, question, result.answer)
 
-    if known:
-        await message.answer(answer)
-        await redis_context.append_pair(user.telegram_id, question, answer)
-        await create_dialog_entry(
-            session,
-            user_id=user.telegram_id,
-            question=question,
-            answer=answer,
-            answered_by="ai",
-            ticket_status="none",
+    if result.need_operator:
+        token = uuid4().hex[:12]
+        await state.update_data(operator_token=token, operator_question=question)
+        await message.answer(
+            result.answer,
+            reply_markup=call_operator_keyboard(token),
         )
         return
 
-    system_answer = "Я не знаю ответ на этот вопрос. Передаю его менеджеру."
-    await message.answer(f"{system_answer}\n\nМожете задать следующий вопрос.")
-    await redis_context.append_pair(user.telegram_id, question, system_answer)
+    await message.answer(result.answer)
+    await create_dialog_entry(
+        session,
+        user_id=user.telegram_id,
+        question=question,
+        answer=result.answer,
+        answered_by="ai",
+        ticket_status="none",
+    )
+
+
+@router.callback_query(F.data.startswith("call_operator:"))
+async def call_operator(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    user: User,
+    bot: Bot,
+) -> None:
+    token = (callback.data or "").removeprefix("call_operator:")
+    data = await state.get_data()
+    question = data.get("operator_question")
+    if not question or data.get("operator_token") != token:
+        await callback.answer("Этот запрос уже неактуален.", show_alert=True)
+        return
+
     ticket = await create_dialog_entry(
         session,
         user_id=user.telegram_id,
@@ -114,6 +140,18 @@ async def handle_question(
         ticket_status="open",
     )
     await notify_managers_new_ticket(bot, session, ticket, user)
+    await state.update_data(operator_token=None, operator_question=None)
+
+    if callback.message is not None:
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
+        await callback.message.answer(
+            "Запрос передан оператору. Ответ придёт в этот чат.",
+            reply_markup=user_dialog_menu(),
+        )
+    await callback.answer("Оператор вызван")
 
 
 @router.message()

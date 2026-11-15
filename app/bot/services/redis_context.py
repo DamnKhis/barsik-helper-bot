@@ -26,9 +26,18 @@ class RedisContextService:
         if redis is None:
             raise ValueError("Нужен Redis-клиент или redis_url")
         self.redis: Redis = (
-            Redis.from_url(redis, decode_responses=True) if isinstance(redis, str) else redis
+            Redis.from_url(
+                redis,
+                decode_responses=True,
+                socket_connect_timeout=1.0,
+                socket_timeout=1.0,
+            )
+            if isinstance(redis, str)
+            else redis
         )
         self.ttl = ttl
+        self._memory: dict[str, str] = {}
+        self._redis_failed = False
 
     @classmethod
     def from_url(cls, url: str, ttl: int | None = None) -> "RedisContextService":
@@ -38,12 +47,21 @@ class RedisContextService:
     def _key(user_id: int) -> str:
         return str(user_id)
 
+    def _mark_redis_failed(self, exc: Exception) -> None:
+        if not self._redis_failed:
+            logger.warning("Redis недоступен, контекст хранится в памяти: %s", exc)
+        self._redis_failed = True
+
+    async def _read_raw(self, key: str) -> str | None:
+        if not self._redis_failed:
+            try:
+                return await self.redis.get(key)
+            except Exception as exc:  # Redis может быть временно недоступен
+                self._mark_redis_failed(exc)
+        return self._memory.get(key)
+
     async def get_context(self, user_id: int) -> list[dict]:
-        try:
-            raw = await self.redis.get(self._key(user_id))
-        except Exception as exc:  # Redis может быть временно недоступен
-            logger.error("Не удалось прочитать контекст user_id=%s: %s", user_id, exc)
-            return []
+        raw = await self._read_raw(self._key(user_id))
         if not raw:
             return []
         try:
@@ -55,12 +73,16 @@ class RedisContextService:
 
     async def _save(self, user_id: int, context: list[dict]) -> None:
         key = self._key(user_id)
+        raw = json.dumps(context, ensure_ascii=False)
+        self._memory[key] = raw
+        if self._redis_failed:
+            return
         try:
-            await self.redis.set(key, json.dumps(context, ensure_ascii=False))
+            await self.redis.set(key, raw)
             if self.ttl:
                 await self.redis.expire(key, self.ttl)
         except Exception as exc:
-            logger.error("Не удалось сохранить контекст user_id=%s: %s", user_id, exc)
+            self._mark_redis_failed(exc)
 
     async def append_pair(self, user_id: int, question: str, answer: str) -> None:
         context = await self.get_context(user_id)
@@ -77,7 +99,11 @@ class RedisContextService:
         await self.append_message(user_id, "assistant", answer)
 
     async def clear_context(self, user_id: int) -> None:
+        key = self._key(user_id)
+        self._memory.pop(key, None)
+        if self._redis_failed:
+            return
         try:
-            await self.redis.delete(self._key(user_id))
+            await self.redis.delete(key)
         except Exception as exc:
-            logger.error("Не удалось очистить контекст user_id=%s: %s", user_id, exc)
+            self._mark_redis_failed(exc)
