@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # Документы администратора
     uploaded_docs_dir: str = "uploaded_docs"
 
+    # Дашборд аналитики: HTTP Basic. Пустой пароль = страница открыта всем.
+    dashboard_user: str = "admin"
+    dashboard_password: str = ""
+
     @property
     def admin_id_set(self) -> set[int]:
         """ADMIN_IDS в .env: '111,222' или '111 222' -> {111, 222}."""

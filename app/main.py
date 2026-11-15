@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from redis.asyncio import Redis
 
 from app.api import dashboard, health, webhooks
@@ -75,6 +77,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="БАРС-Офис helper bot", lifespan=lifespan)
+
+# Локальные статики дашборда (Chart.js): работают без интернета.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 app.include_router(health.router)
 app.include_router(webhooks.router)

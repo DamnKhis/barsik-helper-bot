@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -79,11 +80,14 @@ def test_collect_stats_aggregates_dashboard_contract(session_maker) -> None:
 
     stats = asyncio.run(dashboard_module._collect_stats())
 
+    assert stats["period"] == "today"
+    assert stats["tz"] == "Europe/Moscow"
+    assert stats["granularity"] == "hour"
     assert stats["kpis"] == {
-        "requests_today": 3,
+        "requests": 3,
         "auto_rate": 33.3,
         "avg_confidence": 0.4,
-        "avg_response_ms": 833,
+        "median_response_ms": 800,
     }
     assert stats["outcomes"] == {"answered": 1, "not_found": 1, "escalated": 1}
     assert len(stats["hourly"]) == 24
@@ -94,6 +98,36 @@ def test_collect_stats_aggregates_dashboard_contract(session_maker) -> None:
         "Где кнопка импорта?",
     ]
     assert all(spot["confidence"] < 0.45 for spot in stats["blind_spots"])
+
+
+def test_period_switches_granularity_and_window(session_maker) -> None:
+    async def add_older_request() -> None:
+        async with db_module.async_session_maker() as session:
+            session.add(
+                db_module.Request(
+                    ts=datetime.now(timezone.utc) - timedelta(days=3),
+                    user_id="9",
+                    question="Старый вопрос за прошлую неделю",
+                    confidence=0.9,
+                    outcome="answered",
+                    response_ms=1000,
+                    docs="Командировки.pdf",
+                )
+            )
+            await session.commit()
+
+    _add_request("1", "Вопрос сегодня", 0.8, "answered", 1000, "Командировки.pdf", 1)
+    asyncio.run(add_older_request())
+
+    today = asyncio.run(dashboard_module._collect_stats("today"))
+    assert today["kpis"]["requests"] == 1
+    assert today["granularity"] == "hour"
+
+    week = asyncio.run(dashboard_module._collect_stats("week"))
+    assert week["kpis"]["requests"] == 2
+    assert week["granularity"] == "day"
+    assert len(week["hourly"]) == 7
+    assert sum(point["c"] for point in week["hourly"]) == 2
 
 
 def test_metric_outcome_mapping() -> None:
@@ -166,10 +200,21 @@ def test_stats_endpoint_returns_dashboard_payload(session_maker) -> None:
 
     from app.main import app
 
-    response = TestClient(app).get("/stats")
+    response = TestClient(app).get("/stats?period=today")
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"kpis", "hourly", "outcomes", "top_topics", "blind_spots"}
-    assert body["kpis"]["requests_today"] == 1
+    assert set(body) == {
+        "period",
+        "tz",
+        "range",
+        "granularity",
+        "kpis",
+        "hourly",
+        "outcomes",
+        "top_topics",
+        "blind_spots",
+    }
+    assert body["period"] == "today"
+    assert body["kpis"]["requests"] == 1
     assert body["outcomes"]["answered"] == 1
