@@ -266,17 +266,48 @@ class Retriever:
         matched = sum(1 for t in content_tokens if t in self.kb.vocab)
         return matched / len(content_tokens)
 
-    @staticmethod
-    def _format_source(payload: dict) -> str:
+    DOC_CODES = {
+        "Реестр мебели": "mebel",
+        "reestr-mebeli": "mebel",
+        "БП Командировка": "bp",
+        "bp-komandirovka": "bp",
+        "Функциональные возможности": "func",
+        "Функциональные возможности работы с БАРС-Офисом": "func",
+        "funktsionalnye-vozmozhnosti": "func",
+        "Инструкция по привязке Telegram и 2FA": "ext",
+        "Архив сделок и Бюджеты сделок": "ext",
+        "Расширенная база знаний БАРС-Офис": "ext",
+    }
+
+    @classmethod
+    def _format_source(cls, payload: dict, bot_username: str | None = None) -> str:
+        bot_name = (bot_username or os.getenv("BOT_USERNAME", "BARS_helper_bot")).lstrip("@").strip()
         doc_title = payload.get("doc_title") or payload.get("doc_name") or "Документация БАРС-Офис"
+        doc_id = str(payload.get("doc_id") or "")
         sec = payload.get("section_path", "")
         if isinstance(sec, list):
             sec_str = " > ".join(str(s) for s in sec if s)
         else:
             sec_str = str(sec)
-        page = payload.get("page")
-        page_str = f" (стр. {page})" if page else ""
-        return f"Источник: {doc_title}{', ' + sec_str if sec_str else ''}{page_str}"
+        page = payload.get("page") or 1
+
+        code = cls.DOC_CODES.get(doc_title) or cls.DOC_CODES.get(doc_id)
+        if not code:
+            title_lower = doc_title.lower()
+            if "мебел" in title_lower:
+                code = "mebel"
+            elif "командиров" in title_lower:
+                code = "bp"
+            elif "функционал" in title_lower:
+                code = "func"
+            else:
+                code = "ext"
+
+        deep_link = f"https://t.me/{bot_name}?start=src_{code}_{page}"
+        label = f"{doc_title}{', ' + sec_str if sec_str else ''} (стр. {page})"
+        return f"📚 Источник: {label}\n🔗 Открыть страницу документа: {deep_link}"
+        label = f"{doc_title}{', ' + sec_str if sec_str else ''} (стр. {page})"
+        return f'📚 Источник: <a href="{deep_link}">{label}</a>'
 
     @staticmethod
     def _extract_chunk_text(payload: dict) -> str:
@@ -468,7 +499,7 @@ class Retriever:
             )
 
         # Фиксируем валидный рабочий вопрос в Топ-10
-        await self.track_faq_question(query, vector_list)
+        asyncio.create_task(self.track_faq_question(query, vector_list))
 
         if vocab_cov < 0.25 and not is_tech_trap:
             score = round(min(0.38, dense_score * 0.6), 3)

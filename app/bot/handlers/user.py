@@ -135,6 +135,13 @@ async def handle_question(
         return
 
     sent = await message.answer(result.answer)  # id сообщения — по нему привяжется 👍/👎
+    from pathlib import Path
+    from aiogram.types import FSInputFile
+
+    for img_path in getattr(result, "images", []) or []:
+        if Path(img_path).exists():
+            await message.answer_photo(FSInputFile(img_path))
+
     await _save_metrics(user, question, result, response_ms, sent.message_id)
     await create_dialog_entry(
         session,

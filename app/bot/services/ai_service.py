@@ -18,6 +18,17 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
+from dataclasses import dataclass, field
+
+@dataclass(slots=True)
+class AIResult:
+    answer: str
+    confidence: float
+    flag: str = "ANSWER"
+    need_operator: bool = False
+    source: str | None = None
+    images: list[str] = field(default_factory=list)
+
 class AIResult:
     answer: str
     flag: str = "ANSWER"
@@ -62,6 +73,7 @@ class AIService:
         question: str,
         context: list[dict],
     ) -> AIResult:
+        images = list(getattr(result, "images", []) or []).
         retriever = await self._ensure_retriever()
         if retriever is not None:
             try:
