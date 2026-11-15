@@ -1,3 +1,5 @@
+import time
+
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -16,7 +18,7 @@ from app.bot.services.ai_stub import get_ai_answer
 from app.bot.services.notifications import notify_admins_manager_request, notify_managers_new_ticket
 from app.bot.services.redis_context import RedisContextService
 from app.bot.states import UserStates
-from app.db import User, create_dialog_entry
+from app.db import User, create_dialog_entry, log_request
 
 router = Router(name="user")
 router.message.filter(RoleFilter("user"))
@@ -96,7 +98,6 @@ async def handle_question(
         await redis_context.append_pair(user.telegram_id, question, answer)
         await log_request(str(user.telegram_id), question, 0.0, "answered",
                           response_ms, "", sent.message_id)
-        await redis_context.append_pair(user.telegram_id, question, answer)
         await create_dialog_entry(
             session,
             user_id=user.telegram_id,
