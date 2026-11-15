@@ -75,3 +75,62 @@ def test_upload_reports_disabled_autosync(tmp_path, monkeypatch) -> None:
 
     assert (kb_source / "manual.docx").is_file()
     assert "KB_AUTOSYNC=0" in message.answer.await_args.args[0]
+
+
+def test_upload_reports_current_build_and_starts_confirmation(tmp_path, monkeypatch) -> None:
+    """Админу показывают, в какой сборке он оказался, и обещают отчитаться позже."""
+    from app.bot.services import kb_status
+
+    uploaded = tmp_path / "uploaded"
+    kb_source = tmp_path / "kb-source"
+    monkeypatch.setattr(admin_module.settings, "uploaded_docs_dir", str(uploaded))
+    monkeypatch.setenv("KB_AUTOSYNC_SOURCE", str(kb_source))
+    monkeypatch.delenv("KB_AUTOSYNC", raising=False)
+
+    status = kb_status.KBStatus(build_id="20261114T205237_a5023733", chunks=102, documents=[])
+    monkeypatch.setattr(admin_module.kb_status, "snapshot", lambda *a, **k: status)
+    started: list[tuple] = []
+    monkeypatch.setattr(
+        admin_module.asyncio,
+        "create_task",
+        lambda coro: started.append(coro) or coro.close(),
+    )
+
+    message = _message("reglament.pdf")
+    message.chat = SimpleNamespace(id=555)
+
+    asyncio.run(admin_module.save_document(message, _state(), _bot()))
+
+    text = message.answer.await_args.args[0]
+    assert "Документ добавлен в базу знаний: reglament.pdf" in text
+    assert "20261114T205237_a5023733" in text
+    assert "документов 0, чанков 102" in text
+    assert "Этого документа в сборке пока нет" in text
+    assert started, "должно запуститься подтверждение попадания документа в сборку"
+
+
+def test_upload_skips_confirmation_when_document_already_indexed(tmp_path, monkeypatch) -> None:
+    from app.bot.services import kb_status
+
+    uploaded = tmp_path / "uploaded"
+    kb_source = tmp_path / "kb-source"
+    monkeypatch.setattr(admin_module.settings, "uploaded_docs_dir", str(uploaded))
+    monkeypatch.setenv("KB_AUTOSYNC_SOURCE", str(kb_source))
+    monkeypatch.delenv("KB_AUTOSYNC", raising=False)
+
+    status = kb_status.KBStatus(
+        build_id="b1",
+        chunks=5,
+        documents=[{"source_path": "docs/source/reglament.pdf", "title": "Регламент"}],
+    )
+    monkeypatch.setattr(admin_module.kb_status, "snapshot", lambda *a, **k: status)
+    tasks: list[tuple] = []
+    monkeypatch.setattr(admin_module.asyncio, "create_task", lambda coro: tasks.append(coro) or coro.close())
+
+    message = _message("reglament.pdf")
+    message.chat = SimpleNamespace(id=555)
+
+    asyncio.run(admin_module.save_document(message, _state(), _bot()))
+
+    assert "Этот документ в сборке уже есть" in message.answer.await_args.args[0]
+    assert tasks == []

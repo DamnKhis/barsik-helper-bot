@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +15,7 @@ from aiogram.types import Message
 from app import kb_autosync
 from app.bot.filters import RoleFilter
 from app.bot.keyboards.reply import BTN_ADD_DOC, admin_menu
+from app.bot.services import kb_status
 from app.bot.states import AdminStates
 from app.config import settings
 
@@ -19,6 +23,13 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
 router.message.filter(RoleFilter("admin"))
+
+# Сколько ждать, пока загруженный документ появится в сборке (сек).
+def confirm_timeout_sec() -> int:
+    try:
+        return max(5, int(os.getenv("KB_CONFIRM_TIMEOUT_SEC", "900") or 900))
+    except ValueError:
+        return 900
 
 
 @router.message(CommandStart())
@@ -31,6 +42,54 @@ async def start(message: Message, state: FSMContext) -> None:
 async def ask_for_document(message: Message, state: FSMContext) -> None:
     await state.set_state(AdminStates.waiting_for_doc)
     await message.answer("Пришлите документ файлом — добавлю его в базу знаний.")
+
+
+async def _confirm_indexed(bot: Bot, chat_id: int, name: str) -> None:
+    """Дождаться, пока загруженный документ появится в сборке, и отчитаться админу.
+
+    Раньше админ получал «пересборка запустится в течение N с» и больше ничего:
+    если пересборка падала (нет ключа, лежит Qdrant, watcher не стартовал), про
+    это никто не узнавал, а вопросы по документу оставались без ответа.
+    """
+    interval = max(5, kb_autosync.interval())
+    deadline = time.monotonic() + confirm_timeout_sec()
+    while time.monotonic() < deadline:
+        await asyncio.sleep(interval)
+        status = await asyncio.to_thread(kb_status.snapshot)
+        if status is not None and status.has_document(name):
+            try:
+                await bot.send_message(
+                    chat_id,
+                    f"✅ Документ в базе знаний: {name}\n{status.short()}.\n"
+                    f"Регламент можно спрашивать прямо сейчас.",
+                    reply_markup=admin_menu(),
+                )
+            except Exception as exc:
+                logger.warning("Не удалось сообщить админу об успешной сборке: %s", exc)
+            return
+
+    status = await asyncio.to_thread(kb_status.snapshot)
+    if status is None:
+        tail = "Пакета знаний ещё нет: проверьте, что bars-kb собран (bars-kb builds)."
+    elif status.stale:
+        tail = (
+            f"Похоже, пересборка не прошла: папка с документами новее сборки {status.build_id}.\n"
+            "Проверьте лог приложения (KB autosync) и что Qdrant поднят, "
+            "либо запустите bars-kb sync вручную."
+        )
+    else:
+        tail = (
+            f"В сборке {status.build_id} этого документа нет, хотя исходники не менялись.\n"
+            "Проверьте формат файла и запустите bars-kb sync вручную."
+        )
+    try:
+        await bot.send_message(
+            chat_id,
+            f"⚠️ Документ «{name}» пока не попал в базу знаний.\n{tail}",
+            reply_markup=admin_menu(),
+        )
+    except Exception as exc:
+        logger.warning("Не удалось сообщить админу о неудаче пересборки: %s", exc)
 
 
 @router.message(AdminStates.waiting_for_doc)
@@ -72,17 +131,30 @@ async def save_document(message: Message, state: FSMContext, bot: Bot) -> None:
         return
 
     await state.clear()
-    if kb_autosync.enabled():
-        rebuild = (
-            "Пересборка базы знаний запустится автоматически "
-            f"в течение {kb_autosync.interval()} с."
-        )
+
+    status = await asyncio.to_thread(kb_status.snapshot)
+    lines = [f"Документ добавлен в базу знаний: {kb_path.name}"]
+    if status is not None:
+        lines.append(f"Текущая сборка — {status.short()}.")
+        if status.has_document(kb_path.name):
+            lines.append("Этот документ в сборке уже есть.")
+        else:
+            lines.append("Этого документа в сборке пока нет.")
     else:
-        rebuild = "Автообновление выключено (KB_AUTOSYNC=0): запустите bars-kb sync вручную."
-    await message.answer(
-        f"Документ добавлен в базу знаний: {kb_path.name}\n{rebuild}",
-        reply_markup=admin_menu(),
-    )
+        lines.append("Сборка ещё не найдена (bars-kb builds покажет, что есть).")
+
+    if kb_autosync.enabled():
+        lines.append(
+            "Пересборка запустится автоматически в течение "
+            f"{kb_autosync.interval()} с — сообщу, когда документ окажется в базе."
+        )
+        chat_id = getattr(getattr(message, "chat", None), "id", None)
+        if chat_id is not None and (status is None or not status.has_document(kb_path.name)):
+            asyncio.create_task(_confirm_indexed(bot, chat_id, kb_path.name))
+    else:
+        lines.append("Автообновление выключено (KB_AUTOSYNC=0): запустите bars-kb sync вручную.")
+
+    await message.answer("\n".join(lines), reply_markup=admin_menu())
 
 
 @router.message()
