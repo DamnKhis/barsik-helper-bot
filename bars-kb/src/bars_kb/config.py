@@ -66,6 +66,11 @@ class Settings:
 def load_settings(root: Path | None = None) -> Settings:
     root = (root or Path(__file__).resolve().parents[2]).resolve()
     _load_env(root / ".env")
+    # In the monorepo bars-kb/ is a subproject and the shared .env lives in the
+    # repository root. Local values win because _load_env uses setdefault.
+    parent_env = root.parent / ".env"
+    if parent_env.is_file() and parent_env != root / ".env":
+        _load_env(parent_env)
 
     def p(name: str, default: str) -> Path:
         value = Path(os.getenv(name, default))

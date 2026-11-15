@@ -174,6 +174,11 @@ bars-kb sync --eval
 принудительно. После успешной сборки обновляются `dist/LATEST`, манифест и
 checksums, а старые сборки удаляются (`--keep 2` по умолчанию).
 
+Сборка без `QWEN_API_KEY` даёт mock/hash-пакет, поэтому `sync`/`ingest` с
+экспортом блокируются: нужен ключ либо явный `--allow-mock`. Настройки читаются
+из `bars-kb/.env`, а если его нет — из `.env` в корне репозитория; переменные
+окружения имеют приоритет.
+
 ### GitHub Actions
 
 Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
@@ -227,6 +232,10 @@ sudo cp bars-kb/deploy/bars-kb-sync.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now bars-kb-sync.timer
 ```
+
+Конфигурация таймера берётся из того же `.env`, что и у бота (`bars-kb/.env`
+или корень репозитория). Ключ `QWEN_API_KEY` обязателен: без него `sync`
+откажется собирать пакет, а не подменит рабочую сборку mock-версией.
 
 Пример cron:
 
