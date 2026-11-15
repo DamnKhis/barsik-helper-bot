@@ -32,17 +32,16 @@ for arg in "$@"; do
   esac
 done
 
-BARS="$KB_DIR/.venv/bin/bars-kb"
-if [ ! -x "$BARS" ]; then
-  BARS="$(command -v bars-kb || true)"
-fi
 PY="$KB_DIR/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
-if [ -z "$BARS" ]; then
-  log "bars-kb not found; run 'make install' in $KB_DIR or activate the venv"
+# Always run the pipeline from this checkout: a globally installed bars-kb may
+# belong to another project and would use a different data/ and dist/.
+export PYTHONPATH="$KB_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+if ! "$PY" -c "import bars_kb.cli" >/dev/null 2>&1; then
+  log "bars-kb is not importable with $PY; run 'make install' in $KB_DIR"
   exit 2
 fi
 
@@ -55,7 +54,7 @@ if [ "$PULL" = "1" ]; then
 fi
 
 log "sync: start"
-"$BARS" sync "${ARGS[@]}"
+"$PY" -m bars_kb.cli sync "${ARGS[@]}"
 
 if [ "$RESTORE" = "1" ]; then
   if [ -z "${QDRANT_URL:-}" ]; then
