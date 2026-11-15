@@ -38,6 +38,11 @@ if not KB_EXPORT_DIR.is_absolute():
 
 FAQ_COLLECTION = "faq_questions"
 LOCAL_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+FASTEMBED_CACHE_DIR = Path(
+    os.getenv("FASTEMBED_CACHE_PATH", str(PROJECT_ROOT / "data" / "fastembed_cache"))
+)
+if not FASTEMBED_CACHE_DIR.is_absolute():
+    FASTEMBED_CACHE_DIR = PROJECT_ROOT / FASTEMBED_CACHE_DIR
 
 LLM_API_KEY = (
     os.getenv("LLM_API_KEY")
@@ -116,7 +121,10 @@ class RAGResponse:
 class Retriever:
     def __init__(self):
         self.qdrant = AsyncQdrantClient(url=QDRANT_URL)
-        self.embedder = TextEmbedding(model_name=LOCAL_EMBEDDING_MODEL)
+        self.embedder = TextEmbedding(
+            model_name=LOCAL_EMBEDDING_MODEL,
+            cache_dir=str(FASTEMBED_CACHE_DIR),
+        )
 
         self.high_threshold = 0.70
         self.low_threshold = 0.40

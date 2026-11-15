@@ -24,6 +24,7 @@ class AIResult:
     need_operator: bool = False
     source: str | None = None
     known: bool = True
+    confidence: float = 0.0
 
 
 class AIService:
@@ -75,6 +76,7 @@ class AIService:
                     need_operator=bool(getattr(result, "need_operator", False)) or flag == "ESCALATE",
                     source=getattr(result, "source", None),
                     known=flag == "ANSWER",
+                    confidence=float(getattr(result, "confidence", 0.0) or 0.0),
                 )
             except Exception as exc:
                 logger.warning("Ошибка RAG-ядра, fallback на заглушку: %s", exc)
@@ -85,4 +87,5 @@ class AIService:
             flag="ANSWER" if known else "ESCALATE",
             need_operator=not known,
             known=known,
+            confidence=1.0 if known else 0.0,
         )

@@ -17,7 +17,7 @@ from app.bot.keyboards.reply import (
     user_dialog_menu,
     user_main_menu,
 )
-from app.bot.services.ai_service import AIService
+from app.bot.services.ai_service import AIResult, AIService
 from app.bot.services.notifications import notify_admins_manager_request, notify_managers_new_ticket
 from app.bot.services.redis_context import RedisContextService
 from app.bot.states import UserStates
@@ -26,6 +26,32 @@ from app.db import User, create_dialog_entry, log_request
 router = Router(name="user")
 router.message.filter(RoleFilter("user"))
 router.callback_query.filter(RoleFilter("user"))
+
+
+def _metric_outcome(result: AIResult) -> str:
+    if result.need_operator or result.flag == "ESCALATE":
+        return "escalated"
+    if result.flag == "ANSWER":
+        return "answered"
+    return "not_found"
+
+
+async def _save_metrics(
+    user: User,
+    question: str,
+    result: AIResult,
+    response_ms: int,
+    msg_id: int | None,
+) -> None:
+    await log_request(
+        str(user.telegram_id),
+        question,
+        result.confidence,
+        _metric_outcome(result),
+        response_ms,
+        result.source or "",
+        msg_id,
+    )
 
 
 @router.message(CommandStart())
@@ -94,27 +120,25 @@ async def handle_question(
         return
 
     context = await redis_context.get_context(user.telegram_id)
-    t0 = time.monotonic()
+    started = time.perf_counter()
     result = await ai_service.answer(user.telegram_id, question, context)
-    response_ms = int((time.monotonic() - t0) * 1000)
+    response_ms = int((time.perf_counter() - started) * 1000)
     await redis_context.append_pair(user.telegram_id, question, result.answer)
 
     if result.need_operator:
         # Уверенность ниже порога: ядро решило эскалировать.
-        # Пишем метрику именно здесь — в момент решения ядра; тикет создаст колбэк ниже.
-        await log_request(str(user.telegram_id), question, 0.0, "escalated", response_ms)
+        # Метрику пишем после отправки ответа; тикет создаст колбэк ниже.
         token = uuid4().hex[:12]
         await state.update_data(operator_token=token, operator_question=question)
-        await message.answer(
+        sent = await message.answer(
             result.answer,
             reply_markup=call_operator_keyboard(token),
         )
+        await _save_metrics(user, question, result, response_ms, sent.message_id)
         return
 
     sent = await message.answer(result.answer)  # id сообщения — по нему привяжется 👍/👎
-    await log_request(
-        str(user.telegram_id), question, 0.0, "answered", response_ms, "", sent.message_id
-    )
+    await _save_metrics(user, question, result, response_ms, sent.message_id)
     await create_dialog_entry(
         session,
         user_id=user.telegram_id,
