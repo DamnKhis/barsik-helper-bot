@@ -31,12 +31,25 @@ def _resolve_pdf_path(filename: str) -> Path | None:
     return None
 
 
-def _extract_pdf_page(pdf_path: Path, page_num: int) -> tuple[bytes, int]:
+def _extract_pdf_pages(pdf_path: Path, page_nums: list[int]) -> tuple[bytes, list[int]]:
     with fitz.open(pdf_path) as src, fitz.open() as out:
-        actual_page = max(1, min(page_num, len(src)))
-        idx = actual_page - 1
-        out.insert_pdf(src, from_page=idx, to_page=idx)
-        return out.tobytes(), actual_page
+        total_pages = len(src)
+        actual_pages: list[int] = []
+        for p in page_nums:
+            clamped = max(1, min(p, total_pages))
+            if clamped not in actual_pages:
+                actual_pages.append(clamped)
+
+        if not actual_pages:
+            actual_pages = [1]
+        else:
+            actual_pages.sort()
+
+        for p in actual_pages:
+            idx = p - 1
+            out.insert_pdf(src, from_page=idx, to_page=idx)
+
+        return out.tobytes(), actual_pages
 
 
 @router.message(CommandStart(deep_link=True))
@@ -47,13 +60,20 @@ async def handle_pdf_deep_link(message: Message, command: CommandObject) -> None
             "Здравствуйте! Я бот поддержки «БАРС-Офис». Задайте вопрос — постараюсь ответить."
         )
         return
-    parts = args.split("_", 2)  # src_<code>_<page>
-    if len(parts) != 3 or not parts[2].isdigit():
+
+    # Поддержка ссылок на одну или несколько страниц: src_<code>_<p1>_<p2>...
+    parts = args.split("_")
+    if len(parts) < 3:
         await message.answer("Некорректная ссылка на источник документа.")
         return
 
-    _, code, page_str = parts
-    page_num = int(page_str)
+    code = parts[1]
+    page_strs = parts[2:]
+    if not all(p.isdigit() for p in page_strs):
+        await message.answer("Некорректная ссылка на источник документа.")
+        return
+
+    page_nums = [int(p) for p in page_strs]
     doc_entry = PDF_MAP.get(code)
     if not doc_entry:
         await message.answer("Документ не найден в списке источников.")
@@ -65,12 +85,14 @@ async def handle_pdf_deep_link(message: Message, command: CommandObject) -> None
         await message.answer(f"Файл документа «{raw_filename}» не найден на сервере.")
         return
 
-    pdf_bytes, actual_page = _extract_pdf_page(pdf_path, page_num)
-    out_filename = f"{clean_prefix}_стр_{actual_page}.pdf"
+    pdf_bytes, actual_pages = _extract_pdf_pages(pdf_path, page_nums)
+    pages_file_suffix = "_".join(str(p) for p in actual_pages)
+    pages_caption = ", ".join(str(p) for p in actual_pages)
+    out_filename = f"{clean_prefix}_стр_{pages_file_suffix}.pdf"
 
     await message.answer_document(
         BufferedInputFile(pdf_bytes, filename=out_filename),
-        caption=f"📄 Выдержка из документа «{clean_prefix.replace('_', ' ')}» (стр. {actual_page})",
+        caption=f"📄 Выдержка из документа «{clean_prefix.replace('_', ' ')}» (стр. {pages_caption})",
     )
 
 

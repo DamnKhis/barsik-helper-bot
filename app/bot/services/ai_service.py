@@ -14,6 +14,15 @@ from app.bot.services.ai_stub import get_ai_answer
 
 logger = logging.getLogger(__name__)
 
+MAX_TG_TEXT_LEN = 3950
+
+
+def _clamp_tg_text(text: str) -> str:
+    if len(text) <= MAX_TG_TEXT_LEN:
+        return text
+    cut = text[:MAX_TG_TEXT_LEN].rsplit("\n", 1)[0].rstrip()
+    return f"{cut}\n…\n(текст сокращён под лимит Telegram)"
+
 
 @dataclass(slots=True)
 class AIResult:
@@ -67,7 +76,7 @@ class AIService:
             try:
                 result = await retriever.answer_query(question, bot_username=bot_username)
                 flag = str(getattr(result, "flag", "ANSWER"))
-                text = str(getattr(result, "answer", "") or "").strip()
+                text = _clamp_tg_text(str(getattr(result, "answer", "") or "").strip())
                 if not text:
                     raise ValueError("RAG вернул пустой ответ")
                 return AIResult(
@@ -84,7 +93,7 @@ class AIService:
 
         known, text = await get_ai_answer(user_id, question, context)
         return AIResult(
-            answer=text,
+            answer=_clamp_tg_text(text),
             flag="ANSWER" if known else "ESCALATE",
             need_operator=not known,
             known=known,
