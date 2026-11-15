@@ -21,7 +21,10 @@ async def help_command(message: Message, role: str) -> None:
     elif role == "manager":
         text = "Меню менеджера: откройте «Неразобранные тикеты» и примите вопрос в работу."
     else:
-        text = "Нажмите «Задать вопрос», чтобы поговорить с ботом. /cancel — выйти из диалога."
+        text = (
+            "Нажмите «Задать вопрос», чтобы поговорить с ботом: вопрос можно написать\n"
+            "текстом или прислать скриншотом. /cancel — выйти из диалога."
+        )
     await message.answer(text, reply_markup=menu_for_role(role))
 
 
