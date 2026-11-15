@@ -188,6 +188,24 @@ mock/hash-сборку. Actions должны быть включены в Settin
 */15 * * * * cd /opt/bars-kb && .venv/bin/bars-kb sync --github --publish >> sync.log 2>&1
 ```
 
+### Сервер
+
+Пересборка не требует релиза бота: меняется только `dist/LATEST`, а клиент
+перечитывает его на каждом поиске.
+
+```bash
+# раз в 10 минут из cron или systemd-таймера
+bars-kb/deploy/update-kb.sh --git-pull   # dist приходит из git
+bars-kb/deploy/update-kb.sh              # документы лежат на сервере
+bars-kb/deploy/update-kb.sh --restore    # + залить LATEST в серверный Qdrant
+```
+
+Готовые юниты — в `deploy/bars-kb-sync.service` и `deploy/bars-kb-sync.timer`.
+Если Actions собирал пакет с embedded Qdrant, коллекции на сервере нет: нужен
+`--restore` (или `QDRANT_URL`/`QDRANT_API_KEY` в secrets, чтобы CI писал сразу в
+общий Qdrant). Клиент (`examples/kb_client.py`) подхватывает новую сборку и откат
+без перезапуска, а на время пересборки продолжает отвечать из предыдущей.
+
 ### Откат
 
 ```bash

@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from dataclasses import replace
@@ -40,6 +41,13 @@ from bars_kb.publish import current_branch, publish_dist
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "data" / "fixtures"
+EXAMPLES = ROOT / "examples"
+if str(EXAMPLES) not in sys.path:
+    sys.path.insert(0, str(EXAMPLES))
+
+from export_paths import latest_build_id, resolve_base_dir  # noqa: E402
+from export_paths import resolve_export_dir as resolve_client_export_dir  # noqa: E402
+from kb_client import KB  # noqa: E402
 
 
 class TableTest(unittest.TestCase):
@@ -365,6 +373,56 @@ class DistFlowTest(unittest.TestCase):
                 [build["build_id"] for build in list_builds(dist)],
                 self.BUILDS[1:],
             )
+
+    def test_latest_pointer_is_re_read_without_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for build_id in self.BUILDS[:2]:
+                self._make_build(dist, build_id)
+            write_latest(dist, self.BUILDS[0])
+            self.assertEqual(latest_build_id(dist), self.BUILDS[0])
+            self.assertEqual(resolve_base_dir(dist), dist.resolve())
+
+            write_latest(dist, self.BUILDS[1])
+            self.assertEqual(latest_build_id(dist), self.BUILDS[1])
+            self.assertEqual(resolve_client_export_dir(dist), (dist / self.BUILDS[1]).resolve())
+
+            # A dangling pointer is ignored instead of breaking clients.
+            (dist / "LATEST").write_text(self.BUILDS[2] + "\n", encoding="utf-8")
+            self.assertIsNone(latest_build_id(dist))
+            self.assertEqual(resolve_client_export_dir(dist), (dist / self.BUILDS[1]).resolve())
+
+    def test_kb_switches_build_after_latest_changes(self) -> None:
+        class DummyClient:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+
+            def close(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for build_id in self.BUILDS[:2]:
+                self._make_build(dist, build_id)
+            write_latest(dist, self.BUILDS[0])
+            env = {
+                "KB_EXPORT_DIR": str(dist),
+                "QDRANT_URL": "http://127.0.0.1:6333",
+                "EMBEDDING_PROVIDER": "hash",
+            }
+            with mock.patch("kb_client.QdrantClient", DummyClient), mock.patch.dict(
+                os.environ, env, clear=False
+            ):
+                kb = KB(dist)
+                self.assertEqual(kb.build_id, self.BUILDS[0])
+                self.assertEqual(kb.collection, f"bars_kb_{self.BUILDS[0]}")
+
+                write_latest(dist, self.BUILDS[1])
+                self.assertTrue(kb.refresh())
+                self.assertEqual(kb.build_id, self.BUILDS[1])
+                self.assertEqual(kb.collection, f"bars_kb_{self.BUILDS[1]}")
+
+                self.assertFalse(kb.refresh())
 
     def test_resolve_export_dir_follows_latest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,0 +1,12 @@
+[Unit]
+Description=BARS KB: check documentation every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+# Catch up after downtime.
+Persistent=true
+Unit=bars-kb-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -13,19 +13,23 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import math
 import os
 import re
+import threading
 import urllib.request
 from pathlib import Path
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import SparseVector
 
-from export_paths import resolve_export_dir
+from export_paths import resolve_base_dir, resolve_export_dir
 
 TOKEN = re.compile(r"[a-zа-яё0-9]+", re.I)
 ROOT = Path(__file__).resolve().parents[1]
+
+logger = logging.getLogger(__name__)
 
 
 def load_env(path: Path | None = None) -> None:
@@ -99,29 +103,101 @@ def encode_sparse(text: str, vocab: dict[str, int]) -> SparseVector:
 
 
 class KB:
+    """Retrieval client that always follows ``dist/LATEST``.
+
+    Pass the ``dist`` directory (or nothing). After every rebuild the pointer
+    changes, and the next query reloads the manifest and switches to the new
+    collection by itself — no restart and no hardcoded build id.
+    """
+
     def __init__(self, export_dir: Path | None = None) -> None:
         load_env()
-        self.export_dir = resolve_export_dir(export_dir)
-        if not (self.export_dir / "collection_config.json").exists():
-            raise RuntimeError(f"Export dir not found: {self.export_dir}")
-        config = json.loads((self.export_dir / "collection_config.json").read_text(encoding="utf-8"))
-        # Use the concrete collection from the selected build, not the moving
-        # alias: otherwise a pinned/rolled-back export would query newer data.
-        self.collection = config.get("collection") or config.get("alias")
-        self.dim = int(config.get("embedding", {}).get("dim", 1024))
-        self.vocab = json.loads((self.export_dir / "sparse_vocab.json").read_text(encoding="utf-8"))
+        self.base_dir = resolve_base_dir(export_dir)
+        self._lock = threading.Lock()
+        self._export_dir: Path | None = None
+        self._client: QdrantClient | None = None
+        self.build_id = ""
+        self._load(initial=True)
+
+    @property
+    def export_dir(self) -> Path:
+        """Concrete build directory currently in use."""
+        return self._export_dir  # type: ignore[return-value]
+
+    def refresh(self) -> bool:
+        """Re-read ``LATEST`` and switch collections if the build changed."""
+        with self._lock:
+            return self._load()
+
+    @staticmethod
+    def _make_client() -> QdrantClient:
         qdrant_url = os.getenv("QDRANT_URL", "")
         if qdrant_url:
-            self.client = QdrantClient(url=qdrant_url, api_key=os.getenv("QDRANT_API_KEY") or None)
-        else:
-            self.client = QdrantClient(path=os.getenv("QDRANT_PATH", str(ROOT / "data/qdrant")))
+            return QdrantClient(url=qdrant_url, api_key=os.getenv("QDRANT_API_KEY") or None)
+        return QdrantClient(path=os.getenv("QDRANT_PATH", str(ROOT / "data/qdrant")))
+
+    def _read_build(self, export_dir: Path) -> tuple[str, int, dict[str, int]]:
+        if not (export_dir / "collection_config.json").exists():
+            raise RuntimeError(f"Export dir not found: {export_dir}")
+        config = json.loads((export_dir / "collection_config.json").read_text(encoding="utf-8"))
+        # Use the concrete collection of the selected build, not the moving
+        # alias: otherwise a pinned/rolled-back export would query newer data.
+        collection = config.get("collection") or config.get("alias")
+        dim = int(config.get("embedding", {}).get("dim", 1024))
+        vocab = json.loads((export_dir / "sparse_vocab.json").read_text(encoding="utf-8"))
+        return collection, dim, vocab
+
+    def _load(self, initial: bool = False) -> bool:
+        export_dir = resolve_export_dir(self.base_dir)
+        if not initial and export_dir == self._export_dir and self._client is not None:
+            return False
+
+        collection, dim, vocab = self._read_build(export_dir)
+
+        previous = self._client
+        if previous is not None:
+            # Embedded Qdrant locks its folder, so the old client must be closed
+            # before the new one is created.
+            try:
+                previous.close()
+            except Exception:
+                pass
+        try:
+            client = self._make_client()
+        except Exception as exc:
+            self._client = None
+            if previous is None:
+                raise
+            # Keep serving the previous build until the new one is usable
+            # (for example, dist was pulled before Qdrant was restored).
+            logger.warning("cannot open Qdrant for build %s: %s", export_dir.name, exc)
+            try:
+                self._client = self._make_client()
+            except Exception as reopen_exc:
+                logger.error("cannot reopen Qdrant: %s", reopen_exc)
+            return False
+
+        self._client = client
+        self.collection = collection
+        self.dim = dim
+        self.vocab = vocab
+        self._export_dir = export_dir
+        self.build_id = export_dir.name
+        return True
+
+    def _snapshot(self) -> tuple[QdrantClient, str, dict[str, int], int]:
+        with self._lock:
+            self._load()
+            assert self._client is not None
+            return self._client, self.collection, self.vocab, self.dim
 
     def search(self, query: str, top_k: int = 8, mode: str = "hybrid") -> list[dict]:
-        dense = embed_query(query, self.dim)
-        sparse = encode_sparse(query, self.vocab)
+        client, collection, vocab, dim = self._snapshot()
+        dense = embed_query(query, dim)
+        sparse = encode_sparse(query, vocab)
         pool = max(top_k * 4, 20)
-        dense_hits = self._dense(dense, pool)
-        sparse_hits = self._sparse(sparse, pool) if sparse.indices else []
+        dense_hits = self._dense(client, collection, dense, pool)
+        sparse_hits = self._sparse(client, collection, sparse, pool) if sparse.indices else []
         if mode == "dense":
             return dense_hits[:top_k]
         if mode == "sparse":
@@ -136,9 +212,9 @@ class KB:
         result = sorted(merged.values(), key=lambda item: item.get("rrf", 0.0), reverse=True)
         return result[:top_k]
 
-    def _dense(self, vector: list[float], limit: int) -> list[dict]:
-        points = self.client.query_points(
-            collection_name=self.collection,
+    def _dense(self, client: QdrantClient, collection: str, vector: list[float], limit: int) -> list[dict]:
+        points = client.query_points(
+            collection_name=collection,
             query=vector,
             using="dense",
             limit=limit,
@@ -146,9 +222,9 @@ class KB:
         ).points
         return [{"id": str(p.id), "score": p.score, "payload": p.payload} for p in points]
 
-    def _sparse(self, vector: SparseVector, limit: int) -> list[dict]:
-        points = self.client.query_points(
-            collection_name=self.collection,
+    def _sparse(self, client: QdrantClient, collection: str, vector: SparseVector, limit: int) -> list[dict]:
+        points = client.query_points(
+            collection_name=collection,
             query=vector,
             using="bm25",
             limit=limit,

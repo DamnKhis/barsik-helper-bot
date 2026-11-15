@@ -16,6 +16,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import (
     CreateAlias,
     CreateAliasOperation,
+    DeleteAlias,
+    DeleteAliasOperation,
     Distance,
     PointStruct,
     SparseVector,
@@ -33,6 +35,7 @@ def main() -> int:
     parser.add_argument("--qdrant-url", default="")
     parser.add_argument("--qdrant-path", default="data/qdrant-restored")
     parser.add_argument("--alias", default="bars_kb_current")
+    parser.add_argument("--previous-alias", default="bars_kb_prev")
     args = parser.parse_args()
 
     export_dir = resolve_export_dir(args.export)
@@ -80,15 +83,34 @@ def main() -> int:
         client.upsert(collection_name=collection, points=batch, wait=True)
 
     try:
-        client.update_collection_aliases(
-            change_aliases_operations=[
-                CreateAliasOperation(
-                    create_alias=CreateAlias(collection_name=collection, alias_name=args.alias)
-                )
-            ]
-        )
+        result = client.get_aliases()
+        items = getattr(result, "aliases", result)
+        aliases = {item.alias_name: item.collection_name for item in items}
     except Exception:
-        pass
+        aliases = {}
+
+    previous = aliases.get(args.alias)
+    operations = []
+    if previous and previous != collection:
+        if args.previous_alias in aliases:
+            operations.append(
+                DeleteAliasOperation(delete_alias=DeleteAlias(alias_name=args.previous_alias))
+            )
+        operations.append(
+            CreateAliasOperation(
+                create_alias=CreateAlias(collection_name=previous, alias_name=args.previous_alias)
+            )
+        )
+    if args.alias in aliases:
+        operations.append(DeleteAliasOperation(delete_alias=DeleteAlias(alias_name=args.alias)))
+    operations.append(
+        CreateAliasOperation(
+            create_alias=CreateAlias(collection_name=collection, alias_name=args.alias)
+        )
+    )
+    client.update_collection_aliases(change_aliases_operations=operations)
+    if previous and previous != collection:
+        print(f"previous alias: {args.previous_alias} -> {previous}")
     print(f"restored {total} points into {collection}; alias={args.alias}")
     return 0
 

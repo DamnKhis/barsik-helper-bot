@@ -141,11 +141,9 @@ def resolve_export_dir(path: str | Path | None = None, root: Path | None = None)
     else:
         base = base.resolve()
 
-    latest = base / LATEST_NAME
-    if latest.is_file():
-        build_id = latest.read_text(encoding="utf-8").strip()
-        if build_id:
-            base = base / build_id
+    build_id = read_latest(base)
+    if build_id:
+        base = base / build_id
 
     if (base / "collection_config.json").exists():
         return base

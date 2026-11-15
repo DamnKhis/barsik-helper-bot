@@ -197,6 +197,53 @@ Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
 самого файла workflow тоже запускает прогон — это безопасный smoke-тест: при
 неизменных документах сборка пропускается и коммит не создаётся.
 
+### Сервер: обновление без перезапуска
+
+Если проект крутится на сервере, пересборка не должна требовать релиза бота.
+Есть два рабочих сценария; оба сводятся к одному: меняется `dist/LATEST`, а
+клиент подхватывает новый пакет на следующем запросе.
+
+**Документы приходят через git (GitHub Actions).** Сервер только забирает
+готовый пакет:
+
+```bash
+# каждые 10 минут: git pull + sync (пересборка пропускается, digest совпал)
+bars-kb/deploy/update-kb.sh --git-pull
+```
+
+**Документы лежат на сервере** (`docs/source`). Тогда `sync` сам пересоберёт KB,
+когда изменится содержимое:
+
+```bash
+bars-kb/deploy/update-kb.sh
+```
+
+Скрипт запускается из cron или systemd-таймера; готовые юниты лежат в
+[`deploy/`](deploy/):
+
+```bash
+sudo cp bars-kb/deploy/bars-kb-sync.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bars-kb-sync.timer
+```
+
+Пример cron:
+
+```cron
+*/10 * * * * cd /opt/barsik-helper-bot/bars-kb && PATH=.venv/bin:$PATH deploy/update-kb.sh --git-pull >> /var/log/bars-kb-sync.log 2>&1
+```
+
+Qdrant. Если CI собирал пакет с embedded Qdrant, коллекции на сервере нет:
+добавьте к скрипту `--restore` (нужен `QDRANT_URL`), и он загрузит сборку из
+`dist/LATEST` в серверный Qdrant. Если в secrets Actions заданы `QDRANT_URL` и
+`QDRANT_API_KEY`, CI пишет сразу в общий Qdrant и `--restore` не нужен.
+
+Клиенты. `examples/kb_client.py` (и `Retriever`, который им пользуется) на
+каждом поиске перечитывает `dist/LATEST` и сам переключается на новую коллекцию.
+Перезапускать бота после пересборки не нужно; откат через `bars-kb rollback`
+подхватывается так же. Чтобы не терять ответы на время пересборки, клиент
+продолжает работать со старой сборкой, пока новая не станет доступна.
+
 ### Откат
 
 ```bash

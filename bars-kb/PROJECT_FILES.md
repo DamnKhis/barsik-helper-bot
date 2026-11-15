@@ -42,7 +42,9 @@ dist/<build_id>/ + dist/LATEST  → следующий разработчик
 | `.env.example` | шаблон конфигурации: один `QWEN_API_KEY`, модели, Qdrant, GitHub | Config | все |
 | `.gitignore` | исключает `.venv`, `.env`, `data/qdrant`, `data/cache`, `data/images`, `data/builds`; `dist/` хранится намеренно | Infra | все |
 | `pyproject.toml` | пакет `bars-kb`: `PyMuPDF`, `Pillow`, `qdrant-client`, `python-docx`; optional extra `local-embeddings`; entry point CLI | Infra | все |
-| `Makefile` | короткие команды: `install`, `ingest`, `sync`, `publish`, `builds`, `rollback`, `eval`, `test`, `restore`, `query`, `clean` | Infra | все |
+| `Makefile` | короткие команды: `install`, `ingest`, `sync`, `publish`, `update`, `builds`, `rollback`, `eval`, `test`, `restore`, `query`, `clean` | Infra | все |
+| `deploy/update-kb.sh` | серверный цикл: `git pull` + `sync` (+ `--restore` в Qdrant) | Infra | следующий разработчик |
+| `deploy/bars-kb-sync.service`, `.timer` | systemd-таймер раз в 10 минут, готов к копированию в `/etc/systemd/system` | Infra | следующий разработчик |
 | `docker-compose.yml` | Qdrant-сервер на портах 6333/6334 с volume | Infra | следующий разработчик |
 | `README.md` | вход в проект: запуск, команды, структура, ограничения | Docs | все |
 | `HANDOFF.md` | контракт передачи: схема payload, restore, обновление, модели | Docs / Handoff | следующий разработчик |
