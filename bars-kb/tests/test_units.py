@@ -49,6 +49,22 @@ from export_paths import latest_build_id, resolve_base_dir  # noqa: E402
 from export_paths import resolve_export_dir as resolve_client_export_dir  # noqa: E402
 from kb_client import KB  # noqa: E402
 
+FIXTURE_FILES = (
+    "fixture_core.docx",
+    "fixture_tricky.docx",
+    "fixture_update_v1.docx",
+    "fixture_update_v2.docx",
+)
+
+
+def setUpModule() -> None:
+    """Tests must work on a fresh clone where generated fixtures are absent."""
+    if all((FIXTURES / name).exists() for name in FIXTURE_FILES):
+        return
+    from bars_kb.fixtures import make_fixtures
+
+    make_fixtures(load_settings(ROOT))
+
 
 class TableTest(unittest.TestCase):
     def test_markdown_table(self) -> None:
