@@ -1,7 +1,6 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 BTN_ASK = "Задать вопрос"
-BTN_REQUEST_MANAGER = "Запросить права менеджера"
 BTN_EXIT_DIALOG = "Выйти из диалога"
 
 BTN_OPEN_TICKETS = "Неразобранные тикеты"
@@ -17,7 +16,7 @@ def _keyboard(*rows: tuple[str, ...]) -> ReplyKeyboardMarkup:
 
 
 def user_main_menu() -> ReplyKeyboardMarkup:
-    return _keyboard((BTN_ASK,), (BTN_REQUEST_MANAGER,))
+    return _keyboard((BTN_ASK,))
 
 
 def user_dialog_menu() -> ReplyKeyboardMarkup:

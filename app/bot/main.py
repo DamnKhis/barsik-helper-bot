@@ -14,7 +14,7 @@ from app.bot.middlewares import DatabaseMiddleware, RoleMiddleware
 from app.bot.services.ai_service import AIService
 from app.bot.services.redis_context import RedisContextService
 from app.config import settings
-from app.db import init_async_db
+from app.db import init_async_db, init_db
 from app.kb_autosync import start as start_kb_autosync
 from app.kb_autosync import stop as stop_kb_autosync
 
@@ -55,6 +55,7 @@ async def main() -> None:
     if not settings.bot_token:
         raise RuntimeError("BOT_TOKEN не задан в .env")
 
+    await init_db()
     await init_async_db()
     redis = Redis.from_url(
         settings.redis_url,

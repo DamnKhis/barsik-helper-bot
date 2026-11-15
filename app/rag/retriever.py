@@ -43,6 +43,29 @@ KB_EXPORT_DIR = resolve_base_dir(
 
 FAQ_COLLECTION = "faq_questions"
 LOCAL_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+FASTEMBED_CACHE_DIR = Path(
+    os.getenv("FASTEMBED_CACHE_PATH", str(PROJECT_ROOT / "data" / "fastembed_cache"))
+)
+if not FASTEMBED_CACHE_DIR.is_absolute():
+    FASTEMBED_CACHE_DIR = PROJECT_ROOT / FASTEMBED_CACHE_DIR
+
+
+def _fastembed_cache_ready() -> bool:
+    model_dir = FASTEMBED_CACHE_DIR / "models--Qdrant--paraphrase-multilingual-MiniLM-L12-v2-onnx-Q"
+    snapshots = model_dir / "snapshots"
+    return snapshots.is_dir() and any(
+        path.exists() for path in snapshots.glob("*/model_optimized.onnx")
+    )
+
+
+FASTEMBED_LOCAL_ONLY = os.getenv("FASTEMBED_LOCAL_ONLY", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+if not FASTEMBED_LOCAL_ONLY:
+    FASTEMBED_LOCAL_ONLY = _fastembed_cache_ready()
 
 LLM_API_KEY = (
     os.getenv("LLM_API_KEY")
@@ -144,7 +167,11 @@ class RAGResponse:
 class Retriever:
     def __init__(self):
         self.qdrant = AsyncQdrantClient(url=QDRANT_URL)
-        self.embedder = TextEmbedding(model_name=LOCAL_EMBEDDING_MODEL)
+        self.embedder = TextEmbedding(
+            model_name=LOCAL_EMBEDDING_MODEL,
+            cache_dir=str(FASTEMBED_CACHE_DIR),
+            local_files_only=FASTEMBED_LOCAL_ONLY,
+        )
 
         self.high_threshold = 0.70
         self.low_threshold = 0.40

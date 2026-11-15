@@ -13,7 +13,6 @@ from app.bot.keyboards.inline import call_operator_keyboard
 from app.bot.keyboards.reply import (
     BTN_ASK,
     BTN_EXIT_DIALOG,
-    BTN_REQUEST_MANAGER,
     user_dialog_menu,
     user_main_menu,
 )
@@ -55,12 +54,12 @@ async def _save_metrics(
 
 
 @router.message(CommandStart())
-async def start(message: Message, state: FSMContext, user: User) -> None:
+async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
-    text = "Здравствуйте! Я бот поддержки «БАРС-Офис». Задайте вопрос — постараюсь ответить."
-    if user.is_pending_manager:
-        text += "\n\nЗаявка на права менеджера уже отправлена администратору."
-    await message.answer(text, reply_markup=user_main_menu())
+    await message.answer(
+        "Здравствуйте! Я бот поддержки «БАРС-Офис». Задайте вопрос — постараюсь ответить.",
+        reply_markup=user_main_menu(),
+    )
 
 
 @router.message(Command("clear"))
@@ -88,20 +87,18 @@ async def exit_dialog(message: Message, state: FSMContext) -> None:
     await message.answer("Вы вышли из диалога.", reply_markup=user_main_menu())
 
 
-@router.message(F.text == BTN_REQUEST_MANAGER)
-async def request_manager(
+@router.message(Command("request_access"))
+async def request_access(
     message: Message,
     session: AsyncSession,
     user: User,
     bot: Bot,
 ) -> None:
     if user.is_pending_manager:
-        await message.answer("Заявка уже отправлена. Дождитесь решения администратора.")
         return
 
     user.is_pending_manager = True
     await session.flush()
-    await message.answer("Заявка на права менеджера отправлена администратору.")
     await notify_admins_manager_request(bot, session, user)
 
 

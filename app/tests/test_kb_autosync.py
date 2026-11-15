@@ -30,9 +30,50 @@ class AutoSyncConfigTest(unittest.TestCase):
             command = kb_autosync._command()
         self.assertEqual(command[1:4], ["-m", "bars_kb.cli", "watch"])
         self.assertEqual(command[command.index("--interval") + 1], "30")
-        self.assertEqual(command[command.index("--source") + 1], "docs/source")
+        self.assertEqual(
+            Path(command[command.index("--source") + 1]),
+            (kb_autosync.KB_DIR / "docs/source").resolve(),
+        )
         self.assertIn("--eval", command)
         self.assertNotIn("--allow-mock", command)
+
+    def test_source_dir_defaults_and_resolves_relative(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("KB_AUTOSYNC_SOURCE", None)
+            self.assertEqual(
+                kb_autosync.source_dir(),
+                (kb_autosync.KB_DIR / "docs/source").resolve(),
+            )
+        with mock.patch.dict(os.environ, {"KB_AUTOSYNC_SOURCE": "docs/custom"}, clear=False):
+            self.assertEqual(
+                kb_autosync.source_dir(),
+                (kb_autosync.KB_DIR / "docs/custom").resolve(),
+            )
+
+    def test_stage_document_copies_and_replaces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "incoming.pdf"
+            source.write_bytes(b"version-1")
+            target_dir = root / "kb-source"
+            with mock.patch.dict(
+                os.environ, {"KB_AUTOSYNC_SOURCE": str(target_dir)}, clear=False
+            ):
+                staged = kb_autosync.stage_document(source)
+                self.assertEqual(staged, target_dir / "incoming.pdf")
+                self.assertEqual(staged.read_bytes(), b"version-1")
+
+                source.write_bytes(b"version-2")
+                kb_autosync.stage_document(source, "renamed.PDF")
+                self.assertEqual((target_dir / "renamed.PDF").read_bytes(), b"version-2")
+                self.assertEqual(list(target_dir.glob("*.tmp")), [])
+
+    def test_stage_document_rejects_unsupported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "payload.exe"
+            source.write_bytes(b"not a document")
+            with self.assertRaises(ValueError):
+                kb_autosync.stage_document(source)
 
     @unittest.skipUnless(os.name == "posix", "pid check is POSIX-specific")
     def test_lock_prevents_second_watcher(self) -> None:

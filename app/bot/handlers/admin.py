@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import kb_autosync
 from app.bot.filters import RoleFilter
 from app.bot.keyboards.inline import approve_manager_keyboard
 from app.bot.keyboards.reply import BTN_ADD_DOC, BTN_APPROVE_MANAGER, admin_menu
@@ -72,6 +73,13 @@ async def save_document(message: Message, state: FSMContext, bot: Bot) -> None:
     if safe_name in {"", ".", ".."}:
         safe_name = f"document_{message.document.file_id}"
 
+    if not kb_autosync.is_supported_document(safe_name):
+        await message.answer(
+            "Поддерживаются PDF, DOCX, MD и TXT.\n"
+            "Пришлите документ в одном из этих форматов."
+        )
+        return
+
     target_dir = Path(settings.uploaded_docs_dir).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / safe_name
@@ -79,9 +87,29 @@ async def save_document(message: Message, state: FSMContext, bot: Bot) -> None:
         target_path = target_dir / f"{target_path.stem}_{uuid4().hex[:8]}{target_path.suffix}"
 
     await bot.download(message.document, destination=target_path)
+
+    try:
+        kb_path = kb_autosync.stage_document(target_path, safe_name)
+    except Exception as exc:
+        logger.exception("Не удалось добавить документ %s в базу знаний", safe_name)
+        await state.clear()
+        await message.answer(
+            f"Файл сохранён локально: {target_path.name}\n"
+            f"Но добавить его в базу знаний не удалось: {exc}",
+            reply_markup=admin_menu(),
+        )
+        return
+
     await state.clear()
+    if kb_autosync.enabled():
+        rebuild = (
+            "Пересборка базы знаний запустится автоматически "
+            f"в течение {kb_autosync.interval()} с."
+        )
+    else:
+        rebuild = "Автообновление выключено (KB_AUTOSYNC=0): запустите bars-kb sync вручную."
     await message.answer(
-        f"Файл сохранён: {target_path.name}",
+        f"Документ добавлен в базу знаний: {kb_path.name}\n{rebuild}",
         reply_markup=admin_menu(),
     )
 

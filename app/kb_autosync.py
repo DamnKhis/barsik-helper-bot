@@ -8,7 +8,9 @@
 
 * ``KB_AUTOSYNC=0`` — выключить (по умолчанию включено);
 * ``KB_AUTOSYNC_INTERVAL=60`` — период проверки в секундах;
-* ``KB_AUTOSYNC_SOURCE`` — папка с документами (по умолчанию ``docs/source``);
+* ``KB_AUTOSYNC_SOURCE`` — папка с документами (по умолчанию
+  ``bars-kb/docs/source``). Документы, загруженные админом через бота, тоже
+  попадают сюда;
 * ``KB_AUTOSYNC_EVAL=1`` — прогонять golden set после сборки;
 * ``KB_AUTOSYNC_ALLOW_MOCK=1`` — разрешить mock/hash-сборку (для отладки).
 """
@@ -18,14 +20,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 KB_DIR = PROJECT_ROOT / "bars-kb"
 LOCK_FILE = KB_DIR / "data" / "autosync.lock"
+SUPPORTED_SUFFIXES = frozenset({".pdf", ".docx", ".md", ".markdown", ".txt"})
 
 _FALSE = {"0", "false", "no", "off"}
 
@@ -34,13 +39,57 @@ def enabled() -> bool:
     return os.getenv("KB_AUTOSYNC", "1").strip().lower() not in _FALSE
 
 
+def interval() -> int:
+    try:
+        return max(5, int(os.getenv("KB_AUTOSYNC_INTERVAL", "60")))
+    except ValueError:
+        return 60
+
+
+def source_dir() -> Path:
+    """Папка-источник KB; относительный KB_AUTOSYNC_SOURCE считается от bars-kb."""
+    raw = os.getenv("KB_AUTOSYNC_SOURCE", "").strip()
+    path = Path(raw).expanduser() if raw else KB_DIR / "docs" / "source"
+    if not path.is_absolute():
+        path = KB_DIR / path
+    return path.resolve()
+
+
+def is_supported_document(name: str | Path) -> bool:
+    return Path(name).suffix.lower() in SUPPORTED_SUFFIXES
+
+
+def stage_document(path: Path, target_name: str | None = None) -> Path:
+    """Атомарно положить документ в источник KB для пересборки watcher-ом."""
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    name = Path(target_name or path.name).name
+    if name in {"", ".", ".."} or not is_supported_document(name):
+        raise ValueError(f"Unsupported document: {name}")
+
+    target = source_dir() / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
+    try:
+        shutil.copy2(path, temporary)
+        os.replace(temporary, target)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return target
+
+
 def _flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() not in _FALSE | {""}
 
 
 def _python() -> str:
     """Prefer the venv that actually has bars-kb dependencies."""
-    for candidate in (KB_DIR / ".venv" / "bin" / "python", PROJECT_ROOT / ".venv" / "bin" / "python"):
+    for candidate in (
+        KB_DIR / ".venv" / "bin" / "python",
+        PROJECT_ROOT / ".venv" / "bin" / "python",
+        PROJECT_ROOT / "venv" / "bin" / "python",
+    ):
         if candidate.is_file():
             return str(candidate)
     return sys.executable
@@ -53,11 +102,10 @@ def _command() -> list[str]:
         "bars_kb.cli",
         "watch",
         "--interval",
-        os.getenv("KB_AUTOSYNC_INTERVAL", "60"),
+        str(interval()),
+        "--source",
+        str(source_dir()),
     ]
-    source = os.getenv("KB_AUTOSYNC_SOURCE", "").strip()
-    if source:
-        cmd += ["--source", source]
     if _flag("KB_AUTOSYNC_ALLOW_MOCK"):
         cmd.append("--allow-mock")
     if _flag("KB_AUTOSYNC_EVAL"):
