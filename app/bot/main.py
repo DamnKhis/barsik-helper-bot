@@ -15,6 +15,8 @@ from app.bot.services.ai_service import AIService
 from app.bot.services.redis_context import RedisContextService
 from app.config import settings
 from app.db import init_async_db
+from app.kb_autosync import start as start_kb_autosync
+from app.kb_autosync import stop as stop_kb_autosync
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +66,11 @@ async def main() -> None:
     ai_service = AIService()
     bot = create_bot()
     dp = create_dispatcher(redis_context, ai_service)
+    kb_autosync = await start_kb_autosync()
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
+        await stop_kb_autosync(kb_autosync)
         await bot.session.close()
         await redis.aclose()
 

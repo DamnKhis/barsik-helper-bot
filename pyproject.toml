@@ -8,4 +8,4 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "bars-kb/src"]
-testpaths = ["app/tests", "indexer/tests"]
+testpaths = ["app/tests", "indexer/tests", "bars-kb/tests"]

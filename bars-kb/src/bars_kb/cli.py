@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 # Allow `python src/bars_kb/cli.py ...` without installing the package.
@@ -55,6 +56,18 @@ def _current_manifest(settings) -> dict | None:
     return None
 
 
+def _needs_rebuild(settings, source: Path) -> tuple[bool, str | None]:
+    """Compare document contents with the build clients currently use."""
+    files = iter_sources(source)
+    if not files:
+        return True, None
+    digest, _ = source_fingerprint(files, source)
+    current = _current_manifest(settings)
+    if current and (current.get("source") or {}).get("digest") == digest:
+        return False, digest
+    return True, digest
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bars-kb", description="BARS documentation ingestion pipeline")
     parser.add_argument(
@@ -81,6 +94,15 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("--publish", action="store_true", help="Commit and push the updated dist/")
     p_sync.add_argument("--no-push", action="store_true", help="With --publish: commit without pushing")
     p_sync.add_argument("--allow-mock", action="store_true", help="Allow building/publishing a mock/hash build")
+
+    p_watch = sub.add_parser("watch", help="Watch docs and rebuild dist when they change")
+    p_watch.add_argument("--source", type=Path, default=None)
+    p_watch.add_argument("--interval", type=int, default=60, help="Seconds between checks (default: 60)")
+    p_watch.add_argument("--keep", type=int, default=2, help="Builds to keep in dist/ (default: 2)")
+    p_watch.add_argument("--force", action="store_true", help="Rebuild once even if documents are unchanged")
+    p_watch.add_argument("--once", action="store_true", help="Check once and exit")
+    p_watch.add_argument("--eval", action="store_true", help="Run retrieval eval after a build")
+    p_watch.add_argument("--allow-mock", action="store_true", help="Allow exporting a mock/hash build")
 
     p_builds = sub.add_parser("builds", help="List builds in dist/")
     p_builds.add_argument("--json", action="store_true", help="Print raw JSON")
@@ -111,16 +133,13 @@ def main(argv: list[str] | None = None) -> int:
         do_export = not getattr(args, "no_export", False)
         manifest = None
         if do_export and not args.force:
-            files = iter_sources(source)
-            if files:
-                digest, _ = source_fingerprint(files, source)
-                current = _current_manifest(settings)
-                if current and (current.get("source") or {}).get("digest") == digest:
-                    manifest = current
-                    logger.info(
-                        "documents unchanged (digest %s); skipping rebuild",
-                        digest[:12],
-                    )
+            changed, digest = _needs_rebuild(settings, source)
+            if not changed:
+                manifest = _current_manifest(settings)
+                logger.info(
+                    "documents unchanged (digest %s); skipping rebuild",
+                    (digest or "")[:12],
+                )
 
         if manifest is None:
             # An exported build replaces dist/LATEST, so a mock/hash build must
@@ -154,6 +173,56 @@ def main(argv: list[str] | None = None) -> int:
                 allow_mock=args.allow_mock,
             )
         return 0
+
+    if args.command == "watch":
+        source = args.source or settings.inbox
+        if _mock_export_blocked(settings, args.allow_mock):
+            logger.error(
+                "refusing to export a mock/hash KB; set QWEN_API_KEY (or pass --allow-mock)"
+            )
+            return 2
+
+        interval = max(5, int(args.interval))
+        logger.info("watch: %s, check every %ss (Ctrl+C to stop)", source, interval)
+        force_next = bool(args.force)
+        while True:
+            files = iter_sources(source)
+            changed = False
+            digest = None
+            if not files:
+                logger.debug("watch: no supported documents in %s", source)
+            elif force_next:
+                changed = True
+            else:
+                changed, digest = _needs_rebuild(settings, source)
+
+            if changed and files:
+                try:
+                    manifest = ingest(
+                        settings,
+                        source=source,
+                        export=True,
+                        keep=args.keep,
+                        evaluate=args.eval,
+                    )
+                    logger.info(
+                        "watch: new build %s (digest %s)",
+                        manifest["build_id"],
+                        (digest or "")[:12] or "changed",
+                    )
+                except Exception as exc:
+                    logger.warning("watch: rebuild failed, will retry: %s", exc)
+                force_next = False
+            elif files:
+                logger.debug("watch: unchanged (digest %s)", (digest or "")[:12])
+
+            if args.once:
+                return 0
+            try:
+                time.sleep(interval)
+            except KeyboardInterrupt:
+                logger.info("watch: stopped")
+                return 0
 
     if args.command == "builds":
         builds = list_builds(settings.dist_dir)

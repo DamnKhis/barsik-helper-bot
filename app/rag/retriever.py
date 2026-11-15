@@ -60,13 +60,36 @@ if LLM_API_KEY and not LLM_API_KEY.startswith("your_"):
     os.environ.setdefault("QWEN_EMBEDDING_MODEL", "qwen/qwen3-embedding-8b")
 
 SYSTEM_PROMPT = (
-    "Ты — точный корпоративный ИИ-ассистент поддержки системы «БАРС-Офис» (АО «БАРС Груп»).\n"
-    "Твоя задача — ответить на вопрос сотрудника СТРОГО на основе предоставленного ниже контекста из документации.\n"
-    "Правила:\n"
-    "1. Используй только факты из контекста. Ничего не выдумывай от себя.\n"
+    "Ты — официальный ИИ-ассистент службы поддержки системы «БАРС-Офис» (АО «БАРС Груп»).\n"
+    "Твоя задача — ответить на вопрос сотрудника СТРОГО на основе предоставленного ниже контекста из документации.\n\n"
+    "ФОРМАТ ВЫВОДА (СТРОГО ОБЯЗАТЕЛЕН):\n"
+    "Самой первой строкой ответа укажи ровно один технический тег статуса:\n"
+    "[FLAG: ANSWER] — в контексте есть информация по теме вопроса (прямой ответ, инструкция или описание соответствующего процесса).\n"
+    "[FLAG: CLARIFY] — вопрос относится к «БАРС-Офису», но сформулирован слишком общо или неоднозначно, нужно уточнить детали.\n"
+    "[FLAG: ESCALATE] — пользователь прямо просит оператора, либо вопрос рабочий, но в контексте вообще нет информации по этой теме.\n"
+    "[FLAG: OFF_TOPIC] — вопрос бытовой (погода, еда, игры, шутки) и не связан с работой или системой «БАРС-Офис».\n\n"
+    "Со второй строки пиши сам текст ответа для пользователя (без упоминания технических тегов).\n\n"
+    "Правила составления ответа:\n"
+    "1. Используй только факты из блока <context>. Ничего не выдумывай от себя.\n"
     "2. Обязательно сохраняй все точные цифры, проценты (>= 60%, 30%), операторы (!>200, <200), номера телефонов (+79991002030), часы работы и пошаговые списки.\n"
-    "3. Отвечай кратко, структурированно и по делу на русском языке, без лишних приветствий."
+    "3. Отвечай кратко, структурированно и по делу на русском языке, без лишних приветствий.\n"
+    "4. Если выбран [FLAG: OFF_TOPIC] — вежливо попроси ввести запрос по теме системы «БАРС-Офис».\n"
+    "5. Если выбран [FLAG: CLARIFY] — задай 1–2 уточняющих вопроса по теме обращения.\n"
+    "6. Если выбран [FLAG: ESCALATE] — сообщи, что переключаешь диалог на специалиста поддержки."
 )
+
+FLAG_RE = re.compile(r"^\s*\[FLAG:\s*(ANSWER|CLARIFY|ESCALATE|OFF_TOPIC)\s*\]\s*\n?", re.I)
+
+
+def parse_llm_output(raw_output: str) -> tuple[str, str]:
+    """Отсекает технический тег [FLAG: ...] из первой строки и возвращает (flag, clean_text)."""
+    match = FLAG_RE.match(raw_output)
+    if match:
+        flag = match.group(1).upper()
+        clean_text = raw_output[match.end():].strip()
+        return flag, clean_text
+    return "ANSWER", raw_output.strip()
+
 
 WORK_ANCHORS = [
     "Техническая ошибка в корпоративной информационной системе БАРС-Офис, программе или браузере",
@@ -247,9 +270,9 @@ class Retriever:
                     images.append(old_img)
         return images[:3]
 
-    async def _generate_llm_answer(self, query: str, context_text: str) -> str:
+    async def _generate_llm_answer(self, query: str, context_text: str) -> tuple[str, str]:
         if not self.llm_client:
-            return context_text
+            return "ANSWER", context_text
 
         for attempt in range(2):
             try:
@@ -259,7 +282,7 @@ class Retriever:
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {
                             "role": "user",
-                            "content": f"Контекст из документации:\n{context_text[:6000]}\n\nВопрос пользователя: {query}"
+                            "content": f"<context>\n{context_text[:6000]}\n</context>\n\nВопрос пользователя: {query}"
                         }
                     ],
                     temperature=0.1,
@@ -268,13 +291,13 @@ class Retriever:
                 )
                 generated = (response.choices[0].message.content or "").strip()
                 if generated:
-                    return generated
+                    return parse_llm_output(generated)
             except Exception as exc:
                 if attempt == 1:
                     logger.warning("LLM fallback (используем текст из Qdrant): %s", exc)
                 else:
                     await asyncio.sleep(0.5)
-        return context_text
+        return "ANSWER", context_text
 
     async def track_faq_question(self, query: str, vector: list[float]) -> None:
         try:
@@ -412,7 +435,7 @@ class Retriever:
             top = payloads[0]
             source_str = self._format_source(top)
             combined_context = "\n\n---\n\n".join(self._extract_chunk_text(p) for p in payloads[:4])
-            llm_body = await self._generate_llm_answer(search_query, combined_context)
+            _, llm_body = await self._generate_llm_answer(search_query, combined_context)
             return RAGResponse(
                 answer=(
                     "⚠️ В базе знаний отсутствует документ «Реестр техники». "
@@ -458,9 +481,37 @@ class Retriever:
                 source=source_str
             )
 
-        # 7. ДИАПАЗОН 1.0 - 0.7: Точный ответ по Топ-5 чанкам из новой базы через Qwen -> ANSWER
+        # 7. ДИАПАЗОН 1.0 - 0.7: Точный ответ по Топ-5 чанкам из новой базы через Qwen + парсинг флага
         combined_context = "\n\n---\n\n".join(self._extract_chunk_text(p) for p in payloads[:5])
-        llm_body = await self._generate_llm_answer(query, combined_context)
+        llm_flag, llm_body = await self._generate_llm_answer(query, combined_context)
+
+        if llm_flag == "OFF_TOPIC":
+            return RAGResponse(
+                answer=llm_body,
+                confidence=0.25,
+                flag="OFF_TOPIC",
+                need_operator=False
+            )
+
+        if llm_flag == "CLARIFY":
+            return RAGResponse(
+                answer=llm_body,
+                confidence=0.55,
+                flag="CLARIFY",
+                need_operator=False,
+                source=source_str
+            )
+
+        if llm_flag == "ESCALATE":
+            return RAGResponse(
+                answer=f"{llm_body}\n\n{source_str}",
+                confidence=0.35,
+                flag="ESCALATE",
+                need_operator=True,
+                source=source_str,
+                images=self._collect_images(payloads[:3])
+            )
+
         return RAGResponse(
             answer=f"{llm_body}\n\n{source_str}",
             confidence=score,

@@ -14,7 +14,8 @@ from unittest import mock
 
 import pymupdf
 from bars_kb.chunker import Chunker
-from bars_kb.cli import _mock_export_blocked
+from bars_kb.cli import _mock_export_blocked, _needs_rebuild
+from bars_kb.cli import main as cli_main
 from bars_kb.config import load_settings
 from bars_kb.embeddings import build_embedder
 from bars_kb.embeddings.hash_embedder import HashEmbedder
@@ -389,6 +390,96 @@ class DistFlowTest(unittest.TestCase):
                 [build["build_id"] for build in list_builds(dist)],
                 self.BUILDS[1:],
             )
+
+    def _watch_settings(self, root: Path, source: Path):
+        return replace(
+            load_settings(ROOT),
+            root=root,
+            data_dir=root / "data",
+            dist_dir=root / "dist",
+            inbox=source,
+            llm_provider="mock",
+            vision_provider="mock",
+            embedding_provider="hash",
+            qwen_api_key="",
+        )
+
+    def test_watch_once_builds_when_documents_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "a.txt").write_text("one", encoding="utf-8")
+            settings = self._watch_settings(root, source)
+            calls: list[dict] = []
+
+            def fake_ingest(_settings, **kwargs):
+                calls.append(kwargs)
+                return {"build_id": "20260101T000001_deadbeef", "collection": "bars_kb_test"}
+
+            with mock.patch("bars_kb.cli.load_settings", return_value=settings), mock.patch(
+                "bars_kb.cli.ingest", fake_ingest
+            ):
+                code = cli_main(["watch", "--once", "--allow-mock"])
+            self.assertEqual(code, 0)
+            self.assertEqual(len(calls), 1)
+            self.assertTrue(calls[0]["export"])
+
+    def test_watch_once_skips_unchanged_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "a.txt").write_text("one", encoding="utf-8")
+            settings = self._watch_settings(root, source)
+            self._make_build(settings.dist_dir, self.BUILDS[0])
+            write_latest(settings.dist_dir, self.BUILDS[0])
+
+            _, digest = _needs_rebuild(settings, source)
+            manifest_path = settings.dist_dir / self.BUILDS[0] / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["source"] = {"digest": digest}
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with mock.patch("bars_kb.cli.load_settings", return_value=settings), mock.patch(
+                "bars_kb.cli.ingest"
+            ) as ingest_mock:
+                code = cli_main(["watch", "--once", "--allow-mock"])
+            self.assertEqual(code, 0)
+            ingest_mock.assert_not_called()
+
+    def test_needs_rebuild_compares_source_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "a.txt").write_text("one", encoding="utf-8")
+            dist = root / "dist"
+            self._make_build(dist, self.BUILDS[0])
+            write_latest(dist, self.BUILDS[0])
+            settings = replace(
+                load_settings(ROOT),
+                root=root,
+                data_dir=root / "data",
+                dist_dir=dist,
+            )
+
+            changed, digest = _needs_rebuild(settings, source)
+            self.assertTrue(changed)
+            self.assertIsNotNone(digest)
+
+            manifest_path = dist / self.BUILDS[0] / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["source"] = {"digest": digest}
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            changed, same = _needs_rebuild(settings, source)
+            self.assertFalse(changed)
+            self.assertEqual(same, digest)
+
+            (source / "a.txt").write_text("two", encoding="utf-8")
+            changed, _ = _needs_rebuild(settings, source)
+            self.assertTrue(changed)
 
     def test_latest_pointer_is_re_read_without_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
