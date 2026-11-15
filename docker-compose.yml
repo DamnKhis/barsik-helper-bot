@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-barsik}
+      POSTGRES_DB: ${POSTGRES_DB:-barsik}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-barsik}
+      TZ: Europe/Moscow
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # наружу не светить, только для локальных скриптов
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-barsik} -d ${POSTGRES_DB:-barsik}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -33,3 +50,4 @@ services:
 
 volumes:
   qdrant_data:
+  pg_data:

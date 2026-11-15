@@ -21,7 +21,6 @@ class Settings(BaseSettings):
 
     # Хранилища
     database_url: str = "sqlite+aiosqlite:///./data/bars.db"
-    db_path: str = "data/bars.db"
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
 

@@ -1,3 +1,4 @@
+import time
 from uuid import uuid4
 
 from aiogram import Bot, F, Router
@@ -20,7 +21,7 @@ from app.bot.services.ai_service import AIService
 from app.bot.services.notifications import notify_admins_manager_request, notify_managers_new_ticket
 from app.bot.services.redis_context import RedisContextService
 from app.bot.states import UserStates
-from app.db import User, create_dialog_entry
+from app.db import User, create_dialog_entry, log_request
 
 router = Router(name="user")
 router.message.filter(RoleFilter("user"))
@@ -93,10 +94,15 @@ async def handle_question(
         return
 
     context = await redis_context.get_context(user.telegram_id)
+    t0 = time.monotonic()
     result = await ai_service.answer(user.telegram_id, question, context)
+    response_ms = int((time.monotonic() - t0) * 1000)
     await redis_context.append_pair(user.telegram_id, question, result.answer)
 
     if result.need_operator:
+        # Уверенность ниже порога: ядро решило эскалировать.
+        # Пишем метрику именно здесь — в момент решения ядра; тикет создаст колбэк ниже.
+        await log_request(str(user.telegram_id), question, 0.0, "escalated", response_ms)
         token = uuid4().hex[:12]
         await state.update_data(operator_token=token, operator_question=question)
         await message.answer(
@@ -105,7 +111,10 @@ async def handle_question(
         )
         return
 
-    await message.answer(result.answer)
+    sent = await message.answer(result.answer)  # id сообщения — по нему привяжется 👍/👎
+    await log_request(
+        str(user.telegram_id), question, 0.0, "answered", response_ms, "", sent.message_id
+    )
     await create_dialog_entry(
         session,
         user_id=user.telegram_id,

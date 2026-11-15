@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db(settings.db_path)
+    await init_db()
     await init_async_db()
 
     redis = Redis.from_url(
