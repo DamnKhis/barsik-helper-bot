@@ -33,11 +33,18 @@ for arg in "$@"; do
 done
 
 BARS="$KB_DIR/.venv/bin/bars-kb"
-[ -x "$BARS" ] || BARS="bars-kb"
+if [ ! -x "$BARS" ]; then
+  BARS="$(command -v bars-kb || true)"
+fi
 PY="$KB_DIR/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+
+if [ -z "$BARS" ]; then
+  log "bars-kb not found; run 'make install' in $KB_DIR or activate the venv"
+  exit 2
+fi
 
 if [ "$PULL" = "1" ]; then
   if git -C "$KB_DIR" pull --ff-only --quiet; then
