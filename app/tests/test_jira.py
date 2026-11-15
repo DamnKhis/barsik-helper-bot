@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -326,19 +327,27 @@ def test_add_attachment_posts_multipart() -> None:
     assert attachment_id == 900
 
 
-def test_handle_question_forwards_photo_to_jira(monkeypatch) -> None:
-    from app.bot.handlers import user as user_module
 
-    class FakeFile:
-        file_path = "photos/photo_7.jpg"
+
+def test_handle_question_attaches_photo_to_jira(tmp_path, monkeypatch) -> None:
+    from app.bot.handlers import user as user_module
+    from app.bot.services import image_store as image_store_module
+
+    monkeypatch.setattr(image_store_module.settings, "image_query_dir", str(tmp_path))
+    monkeypatch.setattr(
+        user_module,
+        "get_active_jira_session",
+        AsyncMock(return_value=SimpleNamespace(issue_key="SUP-1", last_comment_id=0)),
+    )
+    watermark = AsyncMock()
+    monkeypatch.setattr(user_module, "set_jira_last_comment", watermark)
 
     class FakeBot:
-        async def get_file(self, file_id, request_timeout=None):
-            return FakeFile()
+        async def download(self, file, destination) -> None:
+            Path(destination).write_bytes(b"img-bytes")
 
-        async def download_file(self, file_path, destination, timeout=30, chunk_size=65536, seek=True):
-            destination.write(b"img-bytes")
-            return destination
+        async def send_chat_action(self, *args, **kwargs) -> None:
+            return None
 
     class FakeClient:
         def __init__(self) -> None:
@@ -347,93 +356,56 @@ def test_handle_question_forwards_photo_to_jira(monkeypatch) -> None:
 
         async def add_attachment(self, issue_key, filename, content, content_type):
             self.attachments.append((issue_key, filename, content, content_type))
-            return 321
+            return 1
 
         async def add_comment(self, issue_key, body):
             self.comments.append((issue_key, body))
-            return 42
+            return 2
 
-    class FakeRedis:
-        def __init__(self) -> None:
-            self.messages: list[tuple[int, str, str]] = []
-
-        async def append_message(self, user_id, role, content):
-            self.messages.append((user_id, role, content))
-
-    class FakeMessage:
-        text = None
-        caption = "Смотрите, что нашёл"
-        document = None
-        message_id = 7
-
-        def __init__(self) -> None:
-            self.photo = [SimpleNamespace(file_id="f1", file_size=100)]
-            self.answers: list[str] = []
-
-        async def answer(self, text, reply_markup=None):
-            self.answers.append(text)
-
-    row = SimpleNamespace(user_id=42, issue_key="SUP-1")
-    monkeypatch.setattr(user_module, "get_active_jira_session", AsyncMock(return_value=row))
-    watermark = AsyncMock()
-    monkeypatch.setattr(user_module, "set_jira_last_comment", watermark)
-
-    client = FakeClient()
-    redis = FakeRedis()
-    message = FakeMessage()
+    message = SimpleNamespace(
+        text=None,
+        caption="вот скрин",
+        photo=[SimpleNamespace(file_id="f1", file_size=9)],
+        document=None,
+        message_id=7,
+        chat=SimpleNamespace(id=1),
+        answer=AsyncMock(return_value=SimpleNamespace(message_id=5)),
+        answer_photo=AsyncMock(),
+    )
     user = SimpleNamespace(telegram_id=42, full_name="Иван", username="ivan")
+    redis = SimpleNamespace(
+        get_context=AsyncMock(return_value=[]),
+        append_pair=AsyncMock(),
+        append_message=AsyncMock(),
+    )
+    state = SimpleNamespace(
+        clear=AsyncMock(),
+        update_data=AsyncMock(),
+        get_data=AsyncMock(return_value={}),
+    )
+    client = FakeClient()
 
     asyncio.run(
         user_module.handle_question(
             message,
-            SimpleNamespace(),
+            state,
             SimpleNamespace(),
             user,
             redis,
             SimpleNamespace(),
-            client,
-            FakeBot(),
+            bot=FakeBot(),
+            jira_client=client,
         )
     )
 
-    assert client.attachments == [("SUP-1", "photo_7.jpg", b"img-bytes", "image/jpeg")]
-    assert len(client.comments) == 1
-    body = client.comments[0][1]
-    assert body.startswith("[BARS-USER:42]")
-    assert "Смотрите, что нашёл" in body
-    assert "(вложение: photo_7.jpg)" in body
-    watermark.assert_awaited_once_with(SimpleNamespace(), row, 42)
-    assert redis.messages == [(42, "user", "[изображение: photo_7.jpg] Смотрите, что нашёл")]
-    assert message.answers == ["Изображение передано в поддержку."]
-
-
-def test_download_telegram_file_retries_transient_errors(monkeypatch) -> None:
-    from app.bot.handlers import user as user_module
-
-    class FakeFile:
-        file_path = "photos/file_1.jpg"
-
-    class FakeBot:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def get_file(self, file_id, request_timeout=None):
-            self.calls += 1
-            if self.calls < 3:
-                raise RuntimeError("Request timeout error")
-            return FakeFile()
-
-        async def download_file(self, file_path, destination, timeout=30, chunk_size=65536, seek=True):
-            destination.write(b"image-bytes")
-            return destination
-
-    monkeypatch.setattr(user_module.asyncio, "sleep", AsyncMock())
-    bot = FakeBot()
-    data = asyncio.run(user_module._download_telegram_file(bot, SimpleNamespace(file_id="f1")))
-    assert data == b"image-bytes"
-    assert bot.calls == 3
-
-
+    assert len(client.attachments) == 1
+    issue_key, filename, content, content_type = client.attachments[0]
+    assert issue_key == "SUP-1"
+    assert filename.endswith(".jpg")
+    assert content == b"img-bytes"
+    assert content_type == "image/jpeg"
+    assert client.comments and "вот скрин" in client.comments[0][1]
+    watermark.assert_awaited_once()
 def test_poller_saves_useful_answer_to_support_answers(session_maker, tmp_path, monkeypatch) -> None:
     from app.bot.services import support_answers as support_answers_module
 

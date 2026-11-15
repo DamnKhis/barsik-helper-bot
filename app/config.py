@@ -48,6 +48,17 @@ class Settings(BaseSettings):
     # Полезные ответы поддержки из Jira (Markdown)
     support_answers_dir: str = "bars-kb/docs/support_answers"
 
+    # Вопросы со скриншотами: vision-разбор через тот же ключ, что у RAG.
+    # IMAGE_QUERY_DIR — куда складывать присланные картинки (нужны в тикетах
+    # оператора), VISION_ENABLED=0 — отвечать только по подписи.
+    vision_enabled: bool = True
+    vision_model: str = ""
+    vision_cache_dir: str = "data/vision_cache"
+    image_query_dir: str = "data/query_images"
+    image_max_mb: float = 20.0
+    image_query_keep_days: int = 30
+    send_kb_images: bool = False
+
     # Дашборд аналитики: HTTP Basic. Пустой пароль = страница открыта всем.
     dashboard_user: str = "admin"
     dashboard_password: str = ""

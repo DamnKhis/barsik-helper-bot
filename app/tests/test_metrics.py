@@ -139,6 +139,9 @@ def test_metric_outcome_mapping() -> None:
 def test_bot_handler_writes_metrics_after_answer(session_maker) -> None:
     class FakeMessage:
         text = "Как оформить командировку?"
+        caption = None
+        photo = None
+        document = None
 
         def __init__(self) -> None:
             self.sent: list[tuple[str, object]] = []
@@ -162,7 +165,7 @@ def test_bot_handler_writes_metrics_after_answer(session_maker) -> None:
             pass
 
     class FakeAIService:
-        async def answer(self, user_id: int, question: str, context: list) -> AIResult:
+        async def answer(self, user_id: int, question: str, context: list, image_path=None) -> AIResult:
             return AIResult(
                 answer="Нужен оператор, чтобы помочь с командировкой.",
                 flag="ESCALATE",
@@ -170,6 +173,10 @@ def test_bot_handler_writes_metrics_after_answer(session_maker) -> None:
                 source="Командировки.pdf",
                 confidence=0.31,
             )
+
+    class FakeBot:
+        async def send_chat_action(self, *args, **kwargs) -> None:
+            pass
 
     message = FakeMessage()
     state = FakeState()
@@ -181,6 +188,7 @@ def test_bot_handler_writes_metrics_after_answer(session_maker) -> None:
             user=SimpleNamespace(telegram_id=42),
             redis_context=FakeRedisContext(),
             ai_service=FakeAIService(),
+            bot=FakeBot(),
         )
     )
 
