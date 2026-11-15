@@ -12,6 +12,7 @@ import gzip
 import json
 from pathlib import Path
 
+from export_paths import resolve_export_dir
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     CreateAlias,
@@ -24,8 +25,6 @@ from qdrant_client.models import (
     SparseVectorParams,
     VectorParams,
 )
-
-from export_paths import resolve_export_dir
 
 
 def main() -> int:
