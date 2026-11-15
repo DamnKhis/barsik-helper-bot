@@ -31,10 +31,15 @@ EXAMPLES_DIR = PROJECT_ROOT / "bars-kb" / "examples"
 if str(EXAMPLES_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLES_DIR))
 
+from export_paths import resolve_base_dir  # noqa: E402  (bars-kb/examples is added above)
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-KB_EXPORT_DIR = Path(os.getenv("KB_EXPORT_DIR", "bars-kb/dist"))
-if not KB_EXPORT_DIR.is_absolute():
-    KB_EXPORT_DIR = PROJECT_ROOT / KB_EXPORT_DIR
+# bars-kb/dist is a base directory, not a build: kb_client follows dist/LATEST,
+# so rebuilds and rollbacks are picked up without editing this file.
+KB_EXPORT_DIR = resolve_base_dir(
+    os.getenv("KB_EXPORT_DIR") or (PROJECT_ROOT / "bars-kb" / "dist"),
+    root=PROJECT_ROOT,
+)
 
 FAQ_COLLECTION = "faq_questions"
 LOCAL_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
@@ -133,13 +138,29 @@ class Retriever:
         )
 
         self.kb = None
+        self._kb_error = ""
+        self._init_kb()
+
+    def _init_kb(self) -> None:
+        """(Re)load the handoff package; safe to call before the build exists."""
         try:
             from kb_client import KB
-            if KB_EXPORT_DIR.exists():
-                self.kb = KB(KB_EXPORT_DIR)
-                logger.info("Гибридный клиент KB успешно загружен из %s", KB_EXPORT_DIR)
+
+            self.kb = KB(KB_EXPORT_DIR)
+            logger.info(
+                "KB загружена: сборка %s, коллекция %s (%s)",
+                self.kb.build_id,
+                self.kb.collection,
+                KB_EXPORT_DIR,
+            )
+            self._kb_error = ""
         except Exception as exc:
-            logger.warning("Не удалось инициализировать kb_client.KB: %s", exc)
+            self.kb = None
+            message = str(exc)
+            # A build may appear later; log once per distinct failure.
+            if message != self._kb_error:
+                logger.warning("KB недоступна (%s): %s", KB_EXPORT_DIR, message)
+            self._kb_error = message
 
     def _embed_one(self, text: str) -> np.ndarray:
         vec = np.array(list(self.embedder.embed([text]))[0], dtype=np.float32)
@@ -350,8 +371,18 @@ class Retriever:
             if is_tech_trap else query
         )
 
+        # The package may be built after the bot started (or replaced by a
+        # rebuild): retry instead of answering without a knowledge base.
+        if self.kb is None:
+            self._init_kb()
+
         if self.kb is not None:
-            kb_hits = await asyncio.to_thread(self.kb.search, search_query, 5, "hybrid")
+            try:
+                kb_hits = await asyncio.to_thread(self.kb.search, search_query, 5, "hybrid")
+            except Exception as exc:
+                logger.warning("Поиск по KB не удался, перечитаю LATEST: %s", exc)
+                self.kb = None
+                kb_hits = []
             if kb_hits:
                 payloads = [h["payload"] for h in kb_hits[:5]]
                 dense_scores = [float(h["score"]) for h in kb_hits if float(h["score"]) <= 1.0]
