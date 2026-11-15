@@ -40,12 +40,31 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.schema import CreateSchema
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 OUTCOMES = ("answered", "not_found", "escalated")
+
+
+def _postgres_schema() -> str | None:
+    if not settings.database_url.startswith("postgres"):
+        return None
+    schema = settings.postgres_schema.strip()
+    return schema or None
+
+
+DB_SCHEMA = _postgres_schema()
+ENGINE_CONNECT_ARGS = (
+    {"server_settings": {"search_path": f"{DB_SCHEMA},public"}} if DB_SCHEMA else {}
+)
+
+
+async def _ensure_schema(conn) -> None:
+    if DB_SCHEMA:
+        await conn.execute(CreateSchema(DB_SCHEMA, if_not_exists=True))
 
 
 class Base(DeclarativeBase):
@@ -116,6 +135,7 @@ async def init_db() -> None:
         if raw_path and raw_path != ":memory:":
             Path(raw_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
     async with engine.begin() as conn:
+        await _ensure_schema(conn)
         await conn.run_sync(
             Base.metadata.create_all,
             tables=[Request.__table__, ReindexLog.__table__],
@@ -241,7 +261,12 @@ class DialogHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
-engine = create_async_engine(settings.database_url, echo=False, pool_pre_ping=True)
+engine = create_async_engine(
+    settings.database_url,
+    echo=False,
+    pool_pre_ping=True,
+    connect_args=ENGINE_CONNECT_ARGS,
+)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -252,6 +277,7 @@ async def init_models() -> None:
         if raw_path and raw_path != ":memory:":
             Path(raw_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
     async with engine.begin() as conn:
+        await _ensure_schema(conn)
         await conn.run_sync(Base.metadata.create_all)
 
 
