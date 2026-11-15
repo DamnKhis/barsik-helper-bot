@@ -7,7 +7,6 @@ import re
 import shutil
 from pathlib import Path
 
-
 logger = logging.getLogger(__name__)
 
 LATEST_NAME = "LATEST"

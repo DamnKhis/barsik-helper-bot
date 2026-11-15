@@ -20,10 +20,9 @@ import threading
 import urllib.request
 from pathlib import Path
 
+from export_paths import resolve_base_dir, resolve_export_dir
 from qdrant_client import QdrantClient
 from qdrant_client.models import SparseVector
-
-from export_paths import resolve_base_dir, resolve_export_dir
 
 TOKEN = re.compile(r"[a-zа-яё0-9]+", re.I)
 ROOT = Path(__file__).resolve().parents[1]

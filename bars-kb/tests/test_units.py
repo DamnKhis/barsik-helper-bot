@@ -13,8 +13,6 @@ from pathlib import Path
 from unittest import mock
 
 import pymupdf
-from PIL import Image, ImageDraw
-
 from bars_kb.chunker import Chunker
 from bars_kb.config import load_settings
 from bars_kb.embeddings import build_embedder
@@ -38,6 +36,7 @@ from bars_kb.pipeline import source_fingerprint
 from bars_kb.providers import build_llm, build_vision
 from bars_kb.providers.qwen import QwenChat, QwenEmbeddings
 from bars_kb.publish import current_branch, publish_dist
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "data" / "fixtures"
