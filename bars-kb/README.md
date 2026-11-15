@@ -177,7 +177,8 @@ checksums, а старые сборки удаляются (`--keep 2` по ум
 ### GitHub Actions
 
 Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
-запускается при изменении `docs/source/**` (и вручную через `workflow_dispatch`):
+запускается при изменении `docs/source/**` в ветках `main`, `master`,
+`feature/bars-kb`, `tg-bot`, `devops` (и вручную через `workflow_dispatch`):
 
 1. ставит пакет и запускает `bars-kb sync --source docs/source --publish --eval`;
 2. если документы изменились — пересобирает KB, считает hit@k/MRR и коммитит

@@ -2,7 +2,7 @@ name: Update KB package
 
 on:
   push:
-    branches: [main, master, feature/bars-kb]
+    branches: [main, master, feature/bars-kb, tg-bot, devops]
     paths:
       - "bars-kb/docs/source/**"
       # Editing this workflow also runs it: install, secret check and the
