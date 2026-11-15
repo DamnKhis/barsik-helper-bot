@@ -9,8 +9,8 @@
    (log_request, set_rating), читает GET /stats; реиндексации пишет
    git-интеграция (log_reindex). Функции асинхронные — вызывать через ``await``,
    asyncio.to_thread НЕ нужен.
-2. Пользователи и тикеты (``users`` / ``dialog_history``): ORM-модели,
-   сессия приходит в хендлеры через DatabaseMiddleware (data['session']).
+2. Пользователи и история (``users`` / ``dialog_history`` / ``jira_sessions``):
+   ORM-модели, сессия приходит в хендлеры через DatabaseMiddleware (data['session']).
 
 Расчёт метрик и эндпоинт /stats — зона ответственности другой команды,
 эти функции менять не нужно: таблицы и поля сохранены 1:1.
@@ -20,13 +20,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import cast
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
-    CursorResult,
     DateTime,
     Float,
     ForeignKey,
@@ -223,7 +221,7 @@ async def log_reindex(source: str, files_changed: int, status: str, details: str
 
 
 # ---------------------------------------------------------------------------
-# SQLAlchemy async: пользователи, роли и тикеты
+# SQLAlchemy async: пользователи, история и Jira
 # ---------------------------------------------------------------------------
 
 
@@ -239,6 +237,7 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
+    # Легаси-колонка: оставлена для совместимости с уже созданной БД.
     is_pending_manager: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -256,9 +255,37 @@ class DialogHistory(Base):
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     answered_by: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
+    # Легаси-колонки тикетов: новые записи всегда получают безопасные значения.
     ticket_status: Mapped[str] = mapped_column(String(20), default="none", nullable=False, index=True)
     manager_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class JiraSession(Base):
+    """Связь Telegram-пользователя с задачей Jira."""
+
+    __tablename__ = "jira_sessions"
+    __table_args__ = (Index("idx_jira_user_status", "user_id", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.telegram_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    issue_key: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    issue_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False, index=True)
+    last_comment_id: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 engine = create_async_engine(
@@ -271,7 +298,7 @@ async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_
 
 
 async def init_models() -> None:
-    """Создать таблицы users/dialog_history (не трогает таблицы метрик)."""
+    """Создать таблицы бота (не трогает таблицы метрик)."""
     if settings.database_url.startswith("sqlite"):
         raw_path = settings.database_url.split(":///", 1)[-1]
         if raw_path and raw_path != ":memory:":
@@ -279,6 +306,22 @@ async def init_models() -> None:
     async with engine.begin() as conn:
         await _ensure_schema(conn)
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def normalize_legacy_roles() -> None:
+    """Убрать устаревшую роль manager и зависшие заявки на неё."""
+    async with async_session_maker() as session:
+        await session.execute(
+            update(User)
+            .where(User.role == "manager")
+            .values(role="user", is_pending_manager=False)
+        )
+        await session.execute(
+            update(User)
+            .where(User.is_pending_manager.is_(True))
+            .values(is_pending_manager=False)
+        )
+        await session.commit()
 
 
 async def sync_admin_ids() -> None:
@@ -299,6 +342,7 @@ async def sync_admin_ids() -> None:
 
 async def init_async_db() -> None:
     await init_models()
+    await normalize_legacy_roles()
     await sync_admin_ids()
 
 
@@ -322,6 +366,9 @@ async def get_or_create_user(
             user.username = username
         if full_name is not None:
             user.full_name = full_name
+        if user.role == "manager":
+            user.role = "user"
+            user.is_pending_manager = False
 
     if telegram_id in settings.admin_id_set:
         user.role = "admin"
@@ -331,108 +378,76 @@ async def get_or_create_user(
     return user
 
 
-async def set_pending_manager(session: AsyncSession, telegram_id: int) -> bool:
-    """Пометить заявку пользователя на права менеджера."""
-    result = cast(
-        CursorResult,
-        await session.execute(
-            update(User)
-            .where(User.telegram_id == telegram_id, User.role == "user")
-            .values(is_pending_manager=True)
-        ),
-    )
-    return result.rowcount > 0
-
-
-async def list_pending_managers(session: AsyncSession) -> list[User]:
-    result = await session.scalars(
-        select(User).where(User.is_pending_manager.is_(True)).order_by(User.created_at)
-    )
-    return list(result.all())
-
-
-async def approve_manager(session: AsyncSession, telegram_id: int) -> User | None:
-    """Выдать пользователю права менеджера и снять флаг заявки."""
-    user = await get_user(session, telegram_id)
-    if user is None:
-        return None
-    user.role = "manager"
-    user.is_pending_manager = False
-    await session.flush()
-    return user
-
-
-async def list_by_role(session: AsyncSession, role: str) -> list[User]:
-    result = await session.scalars(select(User).where(User.role == role).order_by(User.created_at))
-    return list(result.all())
-
-
 async def create_dialog_entry(
     session: AsyncSession,
     user_id: int,
     question: str,
     answer: str | None = None,
     answered_by: str = "none",
-    ticket_status: str = "none",
-    manager_id: int | None = None,
 ) -> DialogHistory:
     entry = DialogHistory(
         user_id=user_id,
         question=question,
         answer=answer,
         answered_by=answered_by,
-        ticket_status=ticket_status,
-        manager_id=manager_id,
+        ticket_status="none",
+        manager_id=None,
     )
     session.add(entry)
     await session.flush()
     return entry
 
 
-async def get_ticket(session: AsyncSession, ticket_id: int) -> DialogHistory | None:
-    return await session.get(DialogHistory, ticket_id)
+async def create_jira_session(
+    session: AsyncSession,
+    user_id: int,
+    issue_key: str,
+    issue_url: str = "",
+) -> JiraSession:
+    jira_session = JiraSession(
+        user_id=user_id,
+        issue_key=issue_key,
+        issue_url=issue_url,
+        status="open",
+        last_comment_id=0,
+    )
+    session.add(jira_session)
+    await session.flush()
+    return jira_session
 
 
-async def list_open_tickets(session: AsyncSession, limit: int = 50) -> list[DialogHistory]:
+async def get_active_jira_session(session: AsyncSession, user_id: int) -> JiraSession | None:
     result = await session.scalars(
-        select(DialogHistory)
-        .where(DialogHistory.ticket_status == "open")
-        .order_by(DialogHistory.created_at)
+        select(JiraSession)
+        .where(JiraSession.user_id == user_id, JiraSession.status == "open")
+        .order_by(JiraSession.id.desc())
+        .limit(1)
+    )
+    return result.first()
+
+
+async def list_active_jira_sessions(session: AsyncSession, limit: int = 100) -> list[JiraSession]:
+    result = await session.scalars(
+        select(JiraSession)
+        .where(JiraSession.status == "open")
+        .order_by(JiraSession.id)
         .limit(limit)
     )
     return list(result.all())
 
 
-async def take_ticket(session: AsyncSession, ticket_id: int, manager_id: int) -> bool:
-    """Атомарно перевести открытый тикет в работу."""
-    result = cast(
-        CursorResult,
-        await session.execute(
-            update(DialogHistory)
-            .where(DialogHistory.id == ticket_id, DialogHistory.ticket_status == "open")
-            .values(ticket_status="in_progress", manager_id=manager_id)
-        ),
-    )
-    return result.rowcount > 0
-
-
-async def close_ticket(
+async def set_jira_last_comment(
     session: AsyncSession,
-    ticket_id: int,
-    manager_id: int,
-    answer: str,
-) -> bool:
-    """Закрыть тикет ответом менеджера."""
-    result = cast(
-        CursorResult,
-        await session.execute(
-            update(DialogHistory)
-            .where(
-                DialogHistory.id == ticket_id,
-                DialogHistory.ticket_status == "in_progress",
-                DialogHistory.manager_id == manager_id,
-            )
-            .values(answer=answer, answered_by="manager", ticket_status="closed")
-        ),
-    )
-    return result.rowcount > 0
+    jira_session: JiraSession,
+    comment_id: int,
+) -> None:
+    """Продвинуть watermark, чтобы не отправлять один комментарий дважды."""
+    if comment_id > jira_session.last_comment_id:
+        jira_session.last_comment_id = int(comment_id)
+        await session.flush()
+
+
+async def close_jira_session(session: AsyncSession, jira_session: JiraSession) -> None:
+    jira_session.status = "closed"
+    jira_session.closed_at = datetime.utcnow()
+    await session.flush()

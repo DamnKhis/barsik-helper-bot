@@ -75,6 +75,27 @@ class AutoSyncConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 kb_autosync.stage_document(source)
 
+    def test_stage_document_keeps_original_error_when_cleanup_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "incoming.pdf"
+            source.write_bytes(b"version-1")
+            with mock.patch.dict(
+                os.environ, {"KB_AUTOSYNC_SOURCE": str(root / "kb-source")}, clear=False
+            ):
+                with mock.patch.object(
+                    kb_autosync.shutil,
+                    "copy2",
+                    side_effect=OSError(30, "Read-only file system"),
+                ):
+                    with mock.patch.object(
+                        Path,
+                        "unlink",
+                        side_effect=OSError(30, "Read-only file system"),
+                    ):
+                        with self.assertRaisesRegex(OSError, "Read-only file system"):
+                            kb_autosync.stage_document(source)
+
     @unittest.skipUnless(os.name == "posix", "pid check is POSIX-specific")
     def test_lock_prevents_second_watcher(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

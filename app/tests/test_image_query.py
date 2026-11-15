@@ -235,6 +235,7 @@ def no_db(monkeypatch):
     """Хэндлер не должен ходить в реальную БД во время тестов."""
     monkeypatch.setattr(user_module, "log_request", AsyncMock())
     monkeypatch.setattr(user_module, "create_dialog_entry", AsyncMock())
+    monkeypatch.setattr(user_module, "get_active_jira_session", AsyncMock(return_value=None))
 
 
 def test_handler_processes_photo(tmp_path, monkeypatch, no_db) -> None:
@@ -330,3 +331,94 @@ def test_send_long_keeps_text_of_one_huge_block() -> None:
 
     joined = "".join(call.args[0] for call in message.answer.await_args_list)
     assert joined == text
+
+
+# --- стык с Jira (появился после слияния ветки jira) -----------------------
+
+
+def _redis() -> SimpleNamespace:
+    return SimpleNamespace(
+        get_context=AsyncMock(return_value=[]),
+        append_pair=AsyncMock(),
+        append_message=AsyncMock(),
+    )
+
+
+def test_photo_while_jira_issue_open_goes_to_jira_with_image_note(tmp_path, monkeypatch, no_db) -> None:
+    """Пока обращение открыто, скриншот уходит в Jira комментарием (с отметкой о файле)."""
+    monkeypatch.setattr("app.bot.services.image_store.settings.image_query_dir", str(tmp_path))
+    monkeypatch.setattr(
+        user_module,
+        "get_active_jira_session",
+        AsyncMock(return_value=SimpleNamespace(issue_key="SUP-1", last_comment_id=0)),
+    )
+    watermark = AsyncMock()
+    monkeypatch.setattr(user_module, "set_jira_last_comment", watermark)
+
+    calls: list[str] = []
+
+    class _Service:
+        async def answer(self, *args, **kwargs):
+            calls.append("ai")
+            raise AssertionError("ИИ не должен вызываться, пока открыт тикет")
+
+    client = SimpleNamespace(add_comment=AsyncMock(return_value=42))
+    message = _photo_message(caption="вот скриншот")
+    state = SimpleNamespace(clear=AsyncMock(), update_data=AsyncMock(), get_data=AsyncMock(return_value={}))
+    user = SimpleNamespace(telegram_id=42, full_name="Иван", username="ivan")
+    redis_context = _redis()
+
+    asyncio.run(
+        user_module.handle_question(
+            message, state, SimpleNamespace(), user, redis_context, _Service(), _bot(), client
+        )
+    )
+
+    body = client.add_comment.await_args.args[1]
+    assert "вот скриншот" in body
+    assert "Скриншот от пользователя" in body
+    assert ".jpg" in body  # имя сохранённого файла
+    assert calls == []
+    watermark.assert_awaited_once()
+
+
+def test_call_operator_mentions_images_in_transcript(monkeypatch) -> None:
+    """При создании задачи Jira к истории диалога дописывается путь к скриншоту."""
+    monkeypatch.setattr(user_module.settings, "jira_base_url", "https://jira.example.com")
+    monkeypatch.setattr(user_module.settings, "jira_api_token", "tok")
+    monkeypatch.setattr(user_module.settings, "jira_project_key", "SUP")
+    monkeypatch.setattr(user_module.settings, "jira_issue_type", "Task")
+
+    client = SimpleNamespace(
+        create_issue=AsyncMock(return_value=("SUP-7", "https://jira.example.com/browse/SUP-7")),
+        add_comment=AsyncMock(return_value=99),
+    )
+    monkeypatch.setattr(user_module, "get_active_jira_session", AsyncMock(return_value=None))
+    monkeypatch.setattr(user_module, "create_jira_session", AsyncMock(return_value=SimpleNamespace()))
+    monkeypatch.setattr(user_module, "set_jira_last_comment", AsyncMock())
+
+    callback = SimpleNamespace(
+        data="call_operator:tok",
+        message=SimpleNamespace(
+            edit_reply_markup=AsyncMock(),
+            answer=AsyncMock(),
+        ),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(
+            return_value={
+                "operator_token": "tok",
+                "operator_question": "Как оформить пропуск?",
+                "operator_images": ["/srv/data/query_images/42/shot.jpg"],
+            }
+        ),
+        update_data=AsyncMock(),
+    )
+    user = SimpleNamespace(telegram_id=42, full_name="Иван", username="ivan")
+
+    asyncio.run(user_module.call_operator(callback, state, SimpleNamespace(), user, _redis(), client))
+
+    body = client.add_comment.await_args.args[1]
+    assert "[BARS-TRANSCRIPT]" in body
+    assert "shot.jpg" in body

@@ -9,9 +9,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from redis.asyncio import Redis
 
-from app.bot.handlers import admin, common, manager, user
+from app.bot.handlers import admin, common, user
 from app.bot.middlewares import DatabaseMiddleware, RoleMiddleware
 from app.bot.services.ai_service import AIService
+from app.bot.services.jira import JiraClient
+from app.bot.services.jira_poller import JiraPoller
 from app.bot.services.redis_context import RedisContextService
 from app.config import settings
 from app.db import init_async_db, init_db
@@ -28,6 +30,7 @@ def create_bot() -> Bot:
 def create_dispatcher(
     redis_context: RedisContextService | None = None,
     ai_service: AIService | None = None,
+    jira_client: JiraClient | None = None,
 ) -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
 
@@ -38,12 +41,12 @@ def create_dispatcher(
 
     dp.include_router(common.router)
     dp.include_router(admin.router)
-    dp.include_router(manager.router)
     dp.include_router(user.router)
 
     if redis_context is not None:
         dp.workflow_data["redis_context"] = redis_context
     dp.workflow_data["ai_service"] = ai_service or AIService()
+    dp.workflow_data["jira_client"] = jira_client or JiraClient()
     return dp
 
 
@@ -65,12 +68,19 @@ async def main() -> None:
     )
     redis_context = RedisContextService(redis)
     ai_service = AIService()
+    jira_client = JiraClient()
     bot = create_bot()
-    dp = create_dispatcher(redis_context, ai_service)
+    dp = create_dispatcher(redis_context, ai_service, jira_client)
     kb_autosync = await start_kb_autosync()
+    jira_poller: JiraPoller | None = None
+    if settings.jira_sync_enabled:
+        jira_poller = JiraPoller(bot, redis_context, jira_client)
+        jira_poller.start()
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
+        if jira_poller is not None:
+            await jira_poller.stop()
         await stop_kb_autosync(kb_autosync)
         await bot.session.close()
         await redis.aclose()

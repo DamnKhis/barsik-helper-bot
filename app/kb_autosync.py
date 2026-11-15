@@ -74,7 +74,10 @@ def stage_document(path: Path, target_name: str | None = None) -> Path:
         shutil.copy2(path, temporary)
         os.replace(temporary, target)
     except Exception:
-        temporary.unlink(missing_ok=True)
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise
     return target
 

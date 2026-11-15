@@ -1,3 +1,3 @@
-from app.bot.handlers import admin, common, manager, user
+from app.bot.handlers import admin, common, user
 
-__all__ = ["common", "admin", "manager", "user"]
+__all__ = ["common", "admin", "user"]

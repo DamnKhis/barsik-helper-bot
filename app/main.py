@@ -14,6 +14,8 @@ from redis.asyncio import Redis
 from app.api import dashboard, health, webhooks
 from app.bot.main import create_bot, create_dispatcher
 from app.bot.services.ai_service import AIService
+from app.bot.services.jira import JiraClient
+from app.bot.services.jira_poller import JiraPoller
 from app.bot.services.redis_context import RedisContextService
 from app.config import settings
 from app.db import engine, init_async_db, init_db
@@ -44,16 +46,22 @@ async def lifespan(app: FastAPI):
     app.state.dispatcher = None
     # Локальное автообновление bars-kb/dist: отдельный процесс не нужен.
     app.state.kb_autosync = await start_kb_autosync()
+    app.state.jira_poller = None
 
     if settings.bot_token:
         bot = create_bot()
-        dp = create_dispatcher(redis_context, ai_service)
+        jira_client = JiraClient()
+        dp = create_dispatcher(redis_context, ai_service, jira_client)
         app.state.bot = bot
         app.state.dispatcher = dp
         app.state.polling_task = asyncio.create_task(
             dp.start_polling(bot, skip_updates=True, handle_signals=False),
             name="aiogram-polling",
         )
+        if settings.jira_sync_enabled:
+            jira_poller = JiraPoller(bot, redis_context, jira_client)
+            jira_poller.start()
+            app.state.jira_poller = jira_poller
         logger.info("Telegram polling запущен")
     else:
         logger.warning("BOT_TOKEN не задан — API работает без Telegram-бота")
@@ -70,6 +78,8 @@ async def lifespan(app: FastAPI):
             await app.state.bot.session.close()
         if app.state.dispatcher is not None:
             await app.state.dispatcher.storage.close()
+        if app.state.jira_poller is not None:
+            await app.state.jira_poller.stop()
         await stop_kb_autosync(app.state.kb_autosync)
         await redis.aclose()
         await engine.dispose()
