@@ -76,5 +76,25 @@
     "path": "dist/20261114T205237_a5023733",
     "chunks": 102,
     "images": 37
+  },
+  "source": {
+    "digest": "f07d42a7048d7af76125b0f803bde4413e3414820df07a98b747c4d12e259251",
+    "files": [
+      {
+        "path": "БП Командировка.pdf",
+        "sha256": "977996fbc4c6e9c5b5bc086c7cba9531b1e0ebff7bce2990dab101431a124bfa",
+        "size": 357812
+      },
+      {
+        "path": "Реестр мебели.pdf",
+        "sha256": "2b4f79ca57f11d9e0d10be24f13dbae3f5929db853d03ba2b4f4436b9d6552d6",
+        "size": 272125
+      },
+      {
+        "path": "Функциональные_возможности_работы_с_БАРС_Офисом.pdf",
+        "sha256": "036263d62669c831dbcb4bff08fddd78a3e671e6efb9a81093449875cde09972",
+        "size": 1002931
+      }
+    ]
   }
 }

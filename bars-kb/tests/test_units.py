@@ -1,29 +1,53 @@
 from __future__ import annotations
 
 import io
+import json
+import os
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 import pymupdf
+from PIL import Image, ImageDraw
+
 from bars_kb.chunker import Chunker
 from bars_kb.config import load_settings
 from bars_kb.embeddings import build_embedder
 from bars_kb.embeddings.hash_embedder import HashEmbedder
 from bars_kb.embeddings.sparse import build_vocab, encode_sparse
 from bars_kb.eval.runner import _is_relevant
+from bars_kb.exports import (
+    list_builds,
+    previous_build,
+    prune_builds,
+    read_latest,
+    resolve_export_dir,
+    write_latest,
+)
 from bars_kb.models import Block, Document, Section, table_to_markdown
 from bars_kb.parsers.clean import clean_text
 from bars_kb.parsers.docx_parser import parse_docx
 from bars_kb.parsers.image_filter import inspect_image
 from bars_kb.parsers.pdf_parser import parse_pdf
+from bars_kb.pipeline import source_fingerprint
 from bars_kb.providers import build_llm, build_vision
 from bars_kb.providers.qwen import QwenChat, QwenEmbeddings
-from PIL import Image
+from bars_kb.publish import current_branch, publish_dist
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "data" / "fixtures"
+EXAMPLES = ROOT / "examples"
+if str(EXAMPLES) not in sys.path:
+    sys.path.insert(0, str(EXAMPLES))
+
+from export_paths import latest_build_id, resolve_base_dir  # noqa: E402
+from export_paths import resolve_export_dir as resolve_client_export_dir  # noqa: E402
+from kb_client import KB  # noqa: E402
 
 
 class TableTest(unittest.TestCase):
@@ -282,6 +306,238 @@ class EnrichmentPoolTest(unittest.TestCase):
             chunks = Chunker(local, llm=None, vision=vision).document_chunks(document)
             self.assertEqual(len(chunks), 4)
             self.assertEqual(vision.calls, 1)
+
+
+class DistFlowTest(unittest.TestCase):
+    BUILDS = [
+        "20260101T000001_deadbeef",
+        "20260102T000002_feedface",
+        "20260103T000003_cafebabe",
+    ]
+
+    def _make_build(self, dist: Path, build_id: str, manifest: dict | None = None) -> Path:
+        path = dist / build_id
+        path.mkdir(parents=True)
+        payload = {
+            "build_id": build_id,
+            "embedding": {"provider": "qwen"},
+            "enrichment": {"llm_provider": "qwen"},
+            "counts": {"chunks": 1, "images": 0},
+        }
+        payload.update(manifest or {})
+        (path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+        (path / "collection_config.json").write_text(
+            json.dumps({"collection": f"bars_kb_{build_id}"}),
+            encoding="utf-8",
+        )
+        (path / "sparse_vocab.json").write_text("{}", encoding="utf-8")
+        return path
+
+    @staticmethod
+    def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def test_source_fingerprint_tracks_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.pdf").write_bytes(b"one")
+            (root / "b.docx").write_bytes(b"two")
+            files = sorted(root.iterdir())
+            first, records = source_fingerprint(files, root)
+            second, _ = source_fingerprint(files, root)
+            self.assertEqual(first, second)
+            self.assertEqual([record["path"] for record in records], ["a.pdf", "b.docx"])
+            (root / "a.pdf").write_bytes(b"changed")
+            third, _ = source_fingerprint(files, root)
+            self.assertNotEqual(first, third)
+
+    def test_latest_prune_and_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for index, build_id in enumerate(self.BUILDS):
+                self._make_build(dist, build_id, {"created_at": f"2026-01-0{index + 1}"})
+            write_latest(dist, self.BUILDS[2])
+            self.assertEqual(read_latest(dist), self.BUILDS[2])
+            self.assertEqual(previous_build(dist, self.BUILDS[2]), self.BUILDS[1])
+
+            removed = prune_builds(dist, keep=2, current=self.BUILDS[2])
+            self.assertEqual(removed, [self.BUILDS[0]])
+            remaining = sorted(path.name for path in dist.iterdir() if path.is_dir())
+            self.assertEqual(remaining, self.BUILDS[1:])
+            self.assertEqual(
+                [build["build_id"] for build in list_builds(dist)],
+                self.BUILDS[1:],
+            )
+
+    def test_latest_pointer_is_re_read_without_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for build_id in self.BUILDS[:2]:
+                self._make_build(dist, build_id)
+            write_latest(dist, self.BUILDS[0])
+            self.assertEqual(latest_build_id(dist), self.BUILDS[0])
+            self.assertEqual(resolve_base_dir(dist), dist.resolve())
+
+            write_latest(dist, self.BUILDS[1])
+            self.assertEqual(latest_build_id(dist), self.BUILDS[1])
+            self.assertEqual(resolve_client_export_dir(dist), (dist / self.BUILDS[1]).resolve())
+
+            # A dangling pointer is ignored instead of breaking clients.
+            (dist / "LATEST").write_text(self.BUILDS[2] + "\n", encoding="utf-8")
+            self.assertIsNone(latest_build_id(dist))
+            self.assertEqual(resolve_client_export_dir(dist), (dist / self.BUILDS[1]).resolve())
+
+    def test_kb_switches_build_after_latest_changes(self) -> None:
+        class DummyClient:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+
+            def close(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for build_id in self.BUILDS[:2]:
+                self._make_build(dist, build_id)
+            write_latest(dist, self.BUILDS[0])
+            env = {
+                "KB_EXPORT_DIR": str(dist),
+                "QDRANT_URL": "http://127.0.0.1:6333",
+                "EMBEDDING_PROVIDER": "hash",
+            }
+            with mock.patch("kb_client.QdrantClient", DummyClient), mock.patch.dict(
+                os.environ, env, clear=False
+            ):
+                kb = KB(dist)
+                self.assertEqual(kb.build_id, self.BUILDS[0])
+                self.assertEqual(kb.collection, f"bars_kb_{self.BUILDS[0]}")
+
+                write_latest(dist, self.BUILDS[1])
+                self.assertTrue(kb.refresh())
+                self.assertEqual(kb.build_id, self.BUILDS[1])
+                self.assertEqual(kb.collection, f"bars_kb_{self.BUILDS[1]}")
+
+                self.assertFalse(kb.refresh())
+
+    def test_resolve_export_dir_follows_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dist"
+            for build_id in self.BUILDS[:2]:
+                self._make_build(dist, build_id)
+            write_latest(dist, self.BUILDS[1])
+            self.assertEqual(resolve_export_dir(dist), (dist / self.BUILDS[1]).resolve())
+            self.assertEqual(
+                resolve_export_dir(dist / self.BUILDS[0]),
+                (dist / self.BUILDS[0]).resolve(),
+            )
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_publish_commits_only_dist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._git(repo, "init", "-q")
+            (repo / "README.md").write_text("base", encoding="utf-8")
+            self._git(repo, "add", "README.md")
+            self._git(
+                repo, "-c", "user.name=test", "-c", "user.email=test@example.com",
+                "commit", "-q", "-m", "init",
+            )
+
+            settings = replace(
+                load_settings(ROOT),
+                root=repo,
+                dist_dir=repo / "dist",
+                data_dir=repo / "data",
+            )
+            self._make_build(settings.dist_dir, self.BUILDS[0])
+            write_latest(settings.dist_dir, self.BUILDS[0])
+
+            result = publish_dist(settings, self.BUILDS[0], push=False)
+            self.assertTrue(result["committed"])
+            committed = self._git(repo, "show", "--name-only", "--pretty=format:", "HEAD")
+            self.assertIn(f"dist/{self.BUILDS[0]}/manifest.json", committed.stdout)
+            self.assertIn("dist/LATEST", committed.stdout)
+
+            again = publish_dist(settings, self.BUILDS[0], push=False)
+            self.assertFalse(again["committed"])
+
+    def test_publish_refuses_mock_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dist = root / "dist"
+            self._make_build(
+                dist,
+                self.BUILDS[0],
+                {"embedding": {"provider": "hash"}, "enrichment": {"llm_provider": "mock"}},
+            )
+            write_latest(dist, self.BUILDS[0])
+            settings = replace(
+                load_settings(ROOT),
+                root=root,
+                dist_dir=dist,
+                data_dir=root / "data",
+            )
+            with self.assertRaises(RuntimeError):
+                publish_dist(settings, self.BUILDS[0], push=False)
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_publish_refuses_unrelated_staged_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._git(repo, "init", "-q")
+            (repo / "README.md").write_text("base", encoding="utf-8")
+            self._git(repo, "add", "README.md")
+            self._git(
+                repo, "-c", "user.name=test", "-c", "user.email=test@example.com",
+                "commit", "-q", "-m", "init",
+            )
+            (repo / "notes.txt").write_text("draft", encoding="utf-8")
+            self._git(repo, "add", "notes.txt")
+
+            settings = replace(
+                load_settings(ROOT),
+                root=repo,
+                dist_dir=repo / "dist",
+                data_dir=repo / "data",
+            )
+            self._make_build(settings.dist_dir, self.BUILDS[0])
+            write_latest(settings.dist_dir, self.BUILDS[0])
+            with self.assertRaises(RuntimeError):
+                publish_dist(settings, self.BUILDS[0], push=False)
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_current_branch_handles_detached_ci_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._git(repo, "init", "-q")
+            (repo / "README.md").write_text("base", encoding="utf-8")
+            self._git(repo, "add", "README.md")
+            self._git(
+                repo, "-c", "user.name=test", "-c", "user.email=test@example.com",
+                "commit", "-q", "-m", "init",
+            )
+            head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+            self._git(repo, "checkout", "-q", "--detach", head)
+            with mock.patch.dict(
+                os.environ,
+                {"GITHUB_ACTIONS": "", "GITHUB_REF_NAME": "", "GITHUB_HEAD_REF": "", "GITHUB_REF": ""},
+                clear=False,
+            ):
+                with self.assertRaises(RuntimeError):
+                    current_branch(repo)
+
+            env = {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_REF_NAME": "feature/bars-kb",
+                "GITHUB_HEAD_REF": "",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                self.assertEqual(current_branch(repo), "feature/bars-kb")
 
 
 class EvalRelevanceTest(unittest.TestCase):

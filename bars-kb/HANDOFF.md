@@ -6,20 +6,25 @@
 ## 1. Состав пакета
 
 ```text
-dist/<build_id>/
-├── manifest.json              # версия, counts, модели, документы
-├── collection_config.json     # имя коллекции, alias, named vectors, payload-индексы
-├── chunks.jsonl.gz            # id + dense_vector + sparse_vector + payload
-├── documents.jsonl            # документы и их версии
-├── images.jsonl               # соответствие chunk_id → изображение
-├── images/                    # скриншоты и схемы
-├── golden_retrieval.jsonl     # 13 контрольных вопросов
-├── eval_report.json           # hit@1/3/5, MRR
-├── sparse_vocab.json          # словарь BM25 (нужен для query-time sparse)
-├── checksums.sha256           # SHA256 всех файлов пакета
-├── build_info.json
-└── README_HANDOFF.md          # инструкция внутри пакета
+dist/
+├── LATEST                     # build_id актуальной сборки (стабильная точка входа)
+└── <build_id>/
+    ├── manifest.json              # версия, counts, модели, документы, source digest
+    ├── collection_config.json     # имя коллекции, alias, named vectors, payload-индексы
+    ├── chunks.jsonl.gz            # id + dense_vector + sparse_vector + payload
+    ├── documents.jsonl            # документы и их версии
+    ├── images.jsonl               # соответствие chunk_id → изображение
+    ├── images/                    # скриншоты и схемы
+    ├── golden_retrieval.jsonl     # 13 контрольных вопросов
+    ├── eval_report.json           # hit@1/3/5, MRR
+    ├── sparse_vocab.json          # словарь BM25 (нужен для query-time sparse)
+    ├── checksums.sha256           # SHA256 всех файлов пакета
+    ├── build_info.json
+    └── README_HANDOFF.md          # инструкция внутри пакета
 ```
+
+Не ссылайтесь на `dist/<build_id>/` в коде: при пересборке имя меняется.
+Передавайте базовую папку `dist` — клиенты читают `dist/LATEST` сами.
 
 ## 2. Коллекция Qdrant
 
@@ -132,27 +137,90 @@ python examples/reembed_from_export.py \
 
 ## 6. Обновление документации
 
+Актуальная сборка выбирается через `dist/LATEST`, а не через имя папки. Имя
+`dist/<build_id>/` меняется при каждой пересборке; код и конфигурация должны
+ссылаться на базовую папку:
+
+```dotenv
+KB_EXPORT_DIR=bars-kb/dist
+```
+
+`examples/kb_client.py`, `examples/restore_from_export.py` и `Retriever` читают
+`LATEST` сами. В `dist/` по умолчанию хранятся две сборки: текущая и предыдущая;
+обе уже закоммичены, поэтому откат доступен сразу.
+
 ### Локально
 
 ```bash
 # положить новые PDF/DOCX в docs/source
-bars-kb sync
+bars-kb sync              # пересоберёт, только если документы изменились
+bars-kb sync --force      # пересобрать принудительно
+bars-kb sync --eval       # + прогнать golden set и записать eval_report.json
+bars-kb sync --publish    # пересобрать + commit/push dist/
 ```
+
+Сравнение идёт по digest содержимого документов (`manifest.json → source.digest`),
+поэтому лишние сборки при неизменных файлах не появляются.
 
 ### GitHub
 
 ```bash
-# .env: GITHUB_REPO=owner/repo, GITHUB_TOKEN=..., GITHUB_DOCS_PATH=docs
+# .env: GITHUB_REPO=owner/repo, GITHUB_TOKEN=...,
+# GITHUB_DOCS_PATH=bars-kb/docs/source (путь от корня репозитория)
 bars-kb sync --github
 ```
 
-Полный пересбор создаёт новую коллекцию `bars_kb_<build_id>`, переключает
-`bars_kb_current`, оставляет `bars_kb_prev`. Ошибка пересбора не ломает текущую версию.
-Для регулярного обновления — cron/GitHub Actions, без webhook-сервера:
+Для автоматического обновления `dist/` при изменениях документации на GitHub
+используется workflow `.github/workflows/update-kb.yml`. Он запускается на push
+в `docs/source/**`, выполняет `bars-kb sync --source docs/source --publish --eval`
+и коммитит изменившийся `dist/` + `dist/LATEST` обратно в ту же ветку. Нужен
+секрет `QWEN_API_KEY`; без него workflow падает, чтобы не опубликовать
+mock/hash-сборку. Actions должны быть включены в Settings → Actions → General,
+иначе GitHub не создаёт запуски.
+
+`workflow_dispatch` доступен только после появления workflow в ветке по
+умолчанию. Правка самого файла workflow запускает безопасный smoke-прогон:
+документы не менялись → пересборка пропускается, коммит не создаётся.
+
+Если Actions недоступны, тот же эффект даёт cron:
 
 ```cron
-*/15 * * * * cd /opt/bars-kb && .venv/bin/bars-kb sync --github >> sync.log 2>&1
+*/15 * * * * cd /opt/bars-kb && .venv/bin/bars-kb sync --github --publish >> sync.log 2>&1
 ```
+
+### Сервер
+
+Пересборка не требует релиза бота: меняется только `dist/LATEST`, а клиент
+перечитывает его на каждом поиске.
+
+```bash
+# раз в 10 минут из cron или systemd-таймера
+bars-kb/deploy/update-kb.sh --git-pull   # dist приходит из git
+bars-kb/deploy/update-kb.sh              # документы лежат на сервере
+bars-kb/deploy/update-kb.sh --restore    # + залить LATEST в серверный Qdrant
+```
+
+Готовые юниты — в `deploy/bars-kb-sync.service` и `deploy/bars-kb-sync.timer`.
+Если Actions собирал пакет с embedded Qdrant, коллекции на сервере нет: нужен
+`--restore` (или `QDRANT_URL`/`QDRANT_API_KEY` в secrets, чтобы CI писал сразу в
+общий Qdrant). Клиент (`examples/kb_client.py`) подхватывает новую сборку и откат
+без перезапуска, а на время пересборки продолжает отвечать из предыдущей.
+
+### Откат
+
+```bash
+bars-kb builds                    # * — актуальная сборка
+bars-kb rollback                  # LATEST -> предыдущая
+bars-kb rollback <build_id>       # LATEST -> конкретная
+bars-kb rollback --publish        # закоммитить и запушить откат
+
+# вернуть выбранную сборку в Qdrant
+python examples/restore_from_export.py --export dist --qdrant-url http://127.0.0.1:6333
+```
+
+Полный пересбор создаёт новую коллекцию `bars_kb_<build_id>`, переключает
+`bars_kb_current`, оставляет `bars_kb_prev`. Ошибка пересбора не ломает текущую
+версию. Старые сборки удаляются при `--keep N` (по умолчанию 2, минимум 1).
 
 ## 7. Изображения
 

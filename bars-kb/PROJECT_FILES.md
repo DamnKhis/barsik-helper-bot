@@ -12,9 +12,9 @@
 | **Chunking** | `chunker.py` | режет разделы на parent/child-чанки, добавляет breadcrumb, типы, ID | список `Chunk` |
 | **Enrichment** | `enrich/`, `providers/qwen.py` | Qwen3.8-Flash: summary, вопросы, сущности, OCR скриншотов, схема процесса | обогащённый текст и payload |
 | **Embeddings / Search** | `embeddings/`, `store/` | dense `qwen/qwen3-embedding-8b` + sparse BM25, запись и поиск в Qdrant | коллекция Qdrant |
-| **Export / Handoff** | `pipeline.py` (export), `checksums.py`, `examples/` | собирает `dist/`, README пакета, checksums, restore/query | переносимый пакет |
+| **Export / Handoff** | `pipeline.py` (export), `exports.py`, `publish.py`, `checksums.py`, `examples/` | собирает `dist/`, `LATEST`, checksums, commit/push, restore/query | переносимый пакет |
 | **Evaluation / QA** | `eval/`, `tests/`, `data/golden_retrieval.jsonl` | offline-метрики hit@k/MRR, unit-тесты | `eval_report.json`, отчёт тестов |
-| **Config / CLI / Infra** | `config.py`, `cli.py`, `Makefile`, `docker-compose.yml` | `.env`, команды, Qdrant-сервер, запуск | воспроизводимый запуск |
+| **Config / CLI / Infra** | `config.py`, `cli.py`, `Makefile`, `docker-compose.yml`, `.github/workflows/` | `.env`, команды, Qdrant-сервер, авто-обновление `dist/` | воспроизводимый запуск |
 | **Docs / Presentation** | `docs/`, `README.md`, `HANDOFF*.md`, `presentation/` | документация, контракт передачи, слайды | понятный handoff |
 
 ## 2. Поток данных
@@ -32,7 +32,7 @@ Chunk (text / table / image / faq)
 Qdrant: bars_kb_<build_id> → bars_kb_current
    │  pipeline.export_build + checksums.py
    ▼
-dist/<build_id>/  → следующий разработчик
+dist/<build_id>/ + dist/LATEST  → следующий разработчик
 ```
 
 ## 3. Корневые файлы
@@ -42,7 +42,9 @@ dist/<build_id>/  → следующий разработчик
 | `.env.example` | шаблон конфигурации: один `QWEN_API_KEY`, модели, Qdrant, GitHub | Config | все |
 | `.gitignore` | исключает `.venv`, `.env`, `data/qdrant`, `data/cache`, `data/images`, `data/builds`; `dist/` хранится намеренно | Infra | все |
 | `pyproject.toml` | пакет `bars-kb`: `PyMuPDF`, `Pillow`, `qdrant-client`, `python-docx`; optional extra `local-embeddings`; entry point CLI | Infra | все |
-| `Makefile` | короткие команды: `install`, `ingest`, `eval`, `test`, `restore`, `query`, `clean` | Infra | все |
+| `Makefile` | короткие команды: `install`, `ingest`, `sync`, `publish`, `update`, `builds`, `rollback`, `eval`, `test`, `restore`, `query`, `clean` | Infra | все |
+| `deploy/update-kb.sh` | серверный цикл: `git pull` + `sync` (+ `--restore` в Qdrant) | Infra | следующий разработчик |
+| `deploy/bars-kb-sync.service`, `.timer` | systemd-таймер раз в 10 минут, готов к копированию в `/etc/systemd/system` | Infra | следующий разработчик |
 | `docker-compose.yml` | Qdrant-сервер на портах 6333/6334 с volume | Infra | следующий разработчик |
 | `README.md` | вход в проект: запуск, команды, структура, ограничения | Docs | все |
 | `HANDOFF.md` | контракт передачи: схема payload, restore, обновление, модели | Docs / Handoff | следующий разработчик |
@@ -85,8 +87,10 @@ dist/<build_id>/  → следующий разработчик
 | `eval/__init__.py` | пакет оценки | QA |
 | `eval/runner.py` | golden set → hybrid-поиск → hit@1/3/5, MRR; пишет `eval_report.json` и копию в `dist/` | QA |
 | `checksums.py` | SHA256 всех файлов пакета | Handoff |
-| `pipeline.py` | оркестратор: источники, build_id, парсинг, чанкинг, эмбеддинги, Qdrant, alias, manifest, export, README пакета, checksums | Ingestion / Handoff |
-| `cli.py` | команды `ingest`, `sync`, `status`, `eval`, `fixtures` | Config |
+| `exports.py` | `LATEST`, список сборок, pruning (`--keep`), откат, выбор актуальной сборки | Handoff |
+| `publish.py` | commit/push только `dist/`; защита от mock-сборки и чужих staged-файлов | Handoff |
+| `pipeline.py` | оркестратор: источники, source digest, build_id, парсинг, чанкинг, эмбеддинги, Qdrant, alias, manifest, export, `LATEST`, pruning, checksums | Ingestion / Handoff |
+| `cli.py` | команды `ingest`, `sync`, `builds`, `rollback`, `status`, `eval`, `fixtures`; пропуск пересборки по digest, `--publish` | Config |
 | `fixtures.py` | генерация 4 DOCX-фикстур для тестирования парсера | QA |
 
 ## 5. `examples/` — то, чем пользуется следующий разработчик
@@ -95,14 +99,15 @@ dist/<build_id>/  → следующий разработчик
 |---|---|---|
 | `restore_from_export.py` | создаёт коллекцию, заливает точки из `chunks.jsonl.gz`, ставит alias | следующий разработчик |
 | `query.py` | CLI-пример поиска: hybrid/dense/sparse, вывод цитаты и источника | следующий разработчик |
-| `kb_client.py` | переиспользуемый клиент: `.env`, эмбеддинг запроса, sparse, RRF | следующий разработчик |
+| `kb_client.py` | переиспользуемый клиент: `.env`, `LATEST`, эмбеддинг запроса, sparse, RRF | следующий разработчик |
+| `export_paths.py` | стабильный выбор сборки: `dist/LATEST` вместо имени папки | следующий разработчик |
 | `reembed_from_export.py` | пересчёт только dense-векторов под другую модель (OpenAI-совместимый API или local sentence-transformers) | следующий разработчик |
 
 ## 6. `tests/`
 
 | Файл | Что проверяет |
 |---|---|
-| `test_units.py` | markdown-таблицы, детерминизм hash-эмбеддингов, sparse, очистку футеров, DOCX-структуру, FAQ-чанки, правила релевантности eval |
+| `test_units.py` | markdown-таблицы, детерминизм hash-эмбеддингов, sparse, очистку футеров, DOCX-структуру, FAQ-чанки, правила релевантности eval, digest/`LATEST`/pruning/publish |
 
 ## 7. `docs/`
 
@@ -132,12 +137,13 @@ dist/<build_id>/  → следующий разработчик
 | `data/cache/` | кэш обогащения | да, в git не входит |
 | `data/builds/` | история манифестов | да, в git не входит |
 
-## 9. `dist/<build_id>/` — сам пакет передачи
+## 9. `dist/` — сам пакет передачи
 
 | Файл | Что внутри | Кому |
 |---|---|---|
-| `chunks.jsonl.gz` | 108 JSONL: `id`, `dense_vector`, `sparse_vector`, `payload` | следующий разработчик |
-| `images/` | 42 PNG: 41 скриншот + 1 схема | бот / следующий разработчик |
+| `LATEST` | идентификатор актуальной сборки; стабильная точка входа | следующий разработчик |
+| `chunks.jsonl.gz` | 102 JSONL: `id`, `dense_vector`, `sparse_vector`, `payload` | следующий разработчик |
+| `images/` | 37 файлов: 36 скриншотов + 1 схема | бот / следующий разработчик |
 | `images.jsonl` | связь `chunk_id` → файл изображения | следующий разработчик |
 | `documents.jsonl` | 3 документа: версия, sha256, counts | следующий разработчик |
 | `collection_config.json` | имя коллекции, alias, named vectors, модель эмбеддингов | следующий разработчик |

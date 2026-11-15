@@ -133,15 +133,17 @@ Offline retrieval, 13 контрольных вопросов:
 # Handoff следующему разработчику
 
 ```text
-dist/<build_id>/
-├── chunks.jsonl.gz          # id + dense + sparse + payload
-├── images/                  # 42 файла
-├── images.jsonl             # chunk → image
-├── documents.jsonl          # документы и версии
-├── collection_config.json   # схема коллекции
-├── manifest.json            # counts, модель, checksums
-├── sparse_vocab.json        # словарь BM25
-└── eval_report.json         # метрики и примеры выдачи
+dist/
+├── LATEST                   # build_id текущей сборки
+└── <build_id>/
+    ├── chunks.jsonl.gz      # id + dense + sparse + payload
+    ├── images/              # 37 файлов
+    ├── images.jsonl         # chunk → image
+    ├── documents.jsonl      # документы и версии
+    ├── collection_config.json  # схема коллекции
+    ├── manifest.json        # counts, модель, checksums
+    ├── sparse_vocab.json    # словарь BM25
+    └── eval_report.json     # метрики и примеры выдачи
 ```
 
 - `examples/restore_from_export.py` — залить в Qdrant;

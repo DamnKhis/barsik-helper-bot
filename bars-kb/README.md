@@ -114,8 +114,11 @@ QWEN_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
 |---|---|
 | `bars-kb ingest` | собрать базу из `docs/source` |
 | `bars-kb ingest --source data/fixtures` | собрать из тестовых DOCX |
-| `bars-kb sync` | локальная синхронизация + пересбор |
+| `bars-kb sync` | локальная синхронизация + пересбор, если документы изменились |
 | `bars-kb sync --github` | скачать `GITHUB_REPO` и пересобрать |
+| `bars-kb sync --publish` | пересобрать и закоммитить/запушить `dist/` |
+| `bars-kb builds` | показать сборки в `dist/`, `*` — актуальная |
+| `bars-kb rollback [build_id]` | переключить `dist/LATEST` на предыдущую сборку |
 | `bars-kb eval --top-k 8` | прогнать golden set, записать `data/eval_report.json` |
 | `bars-kb fixtures` | сгенерировать DOCX-фикстуры |
 | `bars-kb status` | показать последний manifest |
@@ -126,14 +129,140 @@ QWEN_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
 .venv/bin/bars-kb --log-level DEBUG ingest
 ```
 
-То же через `make`: `make install`, `make ingest`, `make eval`, `make test`,
-`make restore`, `make query`.
+То же через `make`: `make install`, `make ingest`, `make sync`, `make publish`,
+`make builds`, `make rollback`, `make eval`, `make test`, `make restore`,
+`make query`.
+
+## Обновление документации и `dist/`
+
+`dist/` хранится в git намеренно: это готовый пакет передачи. Чтобы не менять
+код следующего разработчика при каждой пересборке, актуальная сборка выбирается
+через стабильный указатель `dist/LATEST`, а не через имя папки.
+
+```text
+dist/LATEST                     # содержит build_id
+dist/<build_id>/                # текущая сборка
+dist/<build_id-1>/              # предыдущая сборка
+```
+
+В коде и конфигурации используйте базовую папку:
+
+```dotenv
+KB_EXPORT_DIR=bars-kb/dist
+```
+
+`examples/kb_client.py`, `examples/restore_from_export.py` и `Retriever` сами
+читают `LATEST`. Захардкоженный `dist/2026...` не нужен. В `dist/` лежат текущая
+и предыдущая сборки; `bars-kb builds` покажет список, `bars-kb rollback` —
+переключит указатель.
+
+### Локально
+
+```bash
+# новые PDF/DOCX уже лежат в docs/source
+bars-kb sync
+
+# то же + commit/push обновлённого dist
+bars-kb sync --publish
+
+# пересборка с прогоном golden set и eval_report.json
+bars-kb sync --eval
+```
+
+`sync` сравнивает digest содержимого документов с текущей сборкой. Если
+документы не изменились, пересборка пропускается; `--force` пересобирает
+принудительно. После успешной сборки обновляются `dist/LATEST`, манифест и
+checksums, а старые сборки удаляются (`--keep 2` по умолчанию).
+
+### GitHub Actions
+
+Workflow [`.github/workflows/update-kb.yml`](../.github/workflows/update-kb.yml)
+запускается при изменении `docs/source/**` (и вручную через `workflow_dispatch`):
+
+1. ставит пакет и запускает `bars-kb sync --source docs/source --publish --eval`;
+2. если документы изменились — пересобирает KB, считает hit@k/MRR и коммитит
+   `dist/` + `dist/LATEST` обратно в ту же ветку;
+3. если не изменились — ничего не коммитит.
+
+Нужен repository secret `QWEN_API_KEY`. Без него workflow падает, чтобы не
+опубликовать mock/hash-сборку поверх реальной. Публикация mock-сборки вручную
+требует явного `--allow-mock`.
+
+В Settings → Actions → General должно быть разрешено выполнение Actions
+(«Allow all actions and reusable workflows»). Если Actions выключены, GitHub
+молча не создаёт запуски, и коммит в `docs/source/` остаётся без пересборки.
+
+`workflow_dispatch` (кнопка Run workflow) доступен только когда workflow есть в
+ветке по умолчанию. До мержа он срабатывает на push в `feature/bars-kb`; правка
+самого файла workflow тоже запускает прогон — это безопасный smoke-тест: при
+неизменных документах сборка пропускается и коммит не создаётся.
+
+### Сервер: обновление без перезапуска
+
+Если проект крутится на сервере, пересборка не должна требовать релиза бота.
+Есть два рабочих сценария; оба сводятся к одному: меняется `dist/LATEST`, а
+клиент подхватывает новый пакет на следующем запросе.
+
+**Документы приходят через git (GitHub Actions).** Сервер только забирает
+готовый пакет:
+
+```bash
+# каждые 10 минут: git pull + sync (пересборка пропускается, digest совпал)
+bars-kb/deploy/update-kb.sh --git-pull
+```
+
+**Документы лежат на сервере** (`docs/source`). Тогда `sync` сам пересоберёт KB,
+когда изменится содержимое:
+
+```bash
+bars-kb/deploy/update-kb.sh
+```
+
+Скрипт запускается из cron или systemd-таймера; готовые юниты лежат в
+[`deploy/`](deploy/):
+
+```bash
+sudo cp bars-kb/deploy/bars-kb-sync.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bars-kb-sync.timer
+```
+
+Пример cron:
+
+```cron
+*/10 * * * * cd /opt/barsik-helper-bot/bars-kb && PATH=.venv/bin:$PATH deploy/update-kb.sh --git-pull >> /var/log/bars-kb-sync.log 2>&1
+```
+
+Qdrant. Если CI собирал пакет с embedded Qdrant, коллекции на сервере нет:
+добавьте к скрипту `--restore` (нужен `QDRANT_URL`), и он загрузит сборку из
+`dist/LATEST` в серверный Qdrant. Если в secrets Actions заданы `QDRANT_URL` и
+`QDRANT_API_KEY`, CI пишет сразу в общий Qdrant и `--restore` не нужен.
+
+Клиенты. `examples/kb_client.py` (и `Retriever`, который им пользуется) на
+каждом поиске перечитывает `dist/LATEST` и сам переключается на новую коллекцию.
+Перезапускать бота после пересборки не нужно; откат через `bars-kb rollback`
+подхватывается так же. Чтобы не терять ответы на время пересборки, клиент
+продолжает работать со старой сборкой, пока новая не станет доступна.
+
+### Откат
+
+```bash
+bars-kb builds                 # список; * — актуальная
+bars-kb rollback               # LATEST -> предыдущая сборка
+bars-kb rollback --publish     # закоммитить и запушить откат
+python examples/restore_from_export.py --export dist
+```
+
+`--keep 2` гарантирует, что предыдущая сборка остаётся в репозитории. Откат
+меняет указатель, а Qdrant переключается восстановлением выбранного пакета
+(скрипт создаёт коллекцию и переключает alias `bars_kb_current`).
 
 ## Что получается на выходе
 
 - коллекция Qdrant `bars_kb_<build_id>` и alias `bars_kb_current`;
 - пакет `dist/<build_id>/` с `chunks.jsonl.gz`, `sparse_vocab.json`, `images/`,
   `manifest.json`, `checksums.sha256`;
+- `dist/LATEST` — стабильный указатель на актуальную сборку;
 - `data/manifest.json` с последней сборкой и `data/eval_report.json` с метриками.
 
 Пакет самодостаточен: его можно восстановить в чистый Qdrant скриптом
@@ -166,6 +295,7 @@ docs/
   source/       исходные документы для базы знаний
   context/      бриф и критерии (не в базе знаний)
 dist/<build>/   handoff-пакет
+dist/LATEST     указатель на актуальную сборку
 HANDOFF_FILES.md  что именно отдаём: список файлов и их назначение
 PROJECT_FILES.md  карта модулей: кто за что отвечает и что делает
 examples/       restore + query + reembed примеры

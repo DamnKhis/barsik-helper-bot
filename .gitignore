@@ -11,6 +11,11 @@ venv/
 data/
 *.db
 
+# Golden set — вход eval, а не сгенерированный артефакт
+!bars-kb/data/
+bars-kb/data/*
+!bars-kb/data/golden_retrieval.jsonl
+
 # Исходники документации (NDA организаторов — в репозиторий не коммитить)
 docs/*.docx
 docs/*.pdf

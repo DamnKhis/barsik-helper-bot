@@ -1,0 +1,17 @@
+[Unit]
+Description=BARS KB: refresh dist when documentation changes
+Documentation=file:///opt/barsik-helper-bot/bars-kb/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adjust to the checkout location.
+WorkingDirectory=/opt/barsik-helper-bot
+# Add --git-pull when dist is rebuilt by GitHub Actions and the server only
+# pulls it. Add --restore if CI uses an embedded Qdrant and the server must load
+# the new build into its own Qdrant (requires QDRANT_URL in the environment).
+ExecStart=/opt/barsik-helper-bot/bars-kb/deploy/update-kb.sh --git-pull
+Environment=PYTHONUNBUFFERED=1
+# The default timeout is enough for a rebuild; raise it for large document sets.
+TimeoutStartSec=3600
