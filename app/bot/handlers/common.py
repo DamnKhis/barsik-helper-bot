@@ -17,9 +17,7 @@ async def cancel(message: Message, state: FSMContext, role: str) -> None:
 @router.message(Command("help"))
 async def help_command(message: Message, role: str) -> None:
     if role == "admin":
-        text = "Админ-панель: добавьте документ или одобрите заявку менеджера."
-    elif role == "manager":
-        text = "Меню менеджера: откройте «Неразобранные тикеты» и примите вопрос в работу."
+        text = "Админ-панель: пришлите документ, чтобы добавить его в базу знаний."
     else:
         text = "Нажмите «Задать вопрос», чтобы поговорить с ботом. /cancel — выйти из диалога."
     await message.answer(text, reply_markup=menu_for_role(role))

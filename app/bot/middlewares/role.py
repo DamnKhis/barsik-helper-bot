@@ -6,7 +6,6 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db import get_or_create_user
 
 
@@ -30,10 +29,6 @@ class RoleMiddleware(BaseMiddleware):
             username=from_user.username,
             full_name=from_user.full_name,
         )
-        if from_user.id in settings.admin_id_set:
-            user.role = "admin"
-            user.is_pending_manager = False
-
         data["user"] = user
         data["role"] = user.role
         return await handler(event, data)

@@ -1,7 +1,8 @@
+import logging
 import time
 from uuid import uuid4
 
-from aiogram import Bot, F, Router
+from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -17,10 +18,27 @@ from app.bot.keyboards.reply import (
     user_main_menu,
 )
 from app.bot.services.ai_service import AIResult, AIService
-from app.bot.services.notifications import notify_admins_manager_request, notify_managers_new_ticket
+from app.bot.services.jira import (
+    BOT_TRANSCRIPT_PREFIX,
+    JiraClient,
+    format_transcript,
+    format_user_comment,
+    format_user_label,
+)
 from app.bot.services.redis_context import RedisContextService
 from app.bot.states import UserStates
-from app.db import User, create_dialog_entry, log_request
+from app.config import settings
+from app.db import (
+    JiraSession,
+    User,
+    create_dialog_entry,
+    create_jira_session,
+    get_active_jira_session,
+    log_request,
+    set_jira_last_comment,
+)
+
+logger = logging.getLogger(__name__)
 
 router = Router(name="user")
 router.message.filter(RoleFilter("user"))
@@ -53,8 +71,60 @@ async def _save_metrics(
     )
 
 
+async def _get_active_session(session: AsyncSession | None, user: User) -> JiraSession | None:
+    if session is None:
+        return None
+    return await get_active_jira_session(session, user.telegram_id)
+
+
+async def _forward_to_jira(
+    message: Message,
+    session: AsyncSession,
+    user: User,
+    redis_context: RedisContextService,
+    jira_client: JiraClient,
+    jira_session: JiraSession,
+    question: str,
+) -> None:
+    try:
+        comment_id = await jira_client.add_comment(
+            jira_session.issue_key,
+            format_user_comment(question, user),
+        )
+    except Exception:
+        logger.exception("Не удалось отправить сообщение в Jira %s", jira_session.issue_key)
+        await message.answer("Не удалось передать сообщение в поддержку. Попробуйте ещё раз.")
+        return
+
+    await set_jira_last_comment(session, jira_session, comment_id)
+    await redis_context.append_message(user.telegram_id, "user", question)
+    await message.answer("Сообщение передано в поддержку.")
+
+
+async def _remove_operator_button(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+
+
 @router.message(CommandStart())
-async def start(message: Message, state: FSMContext) -> None:
+async def start(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession | None = None,
+    user: User | None = None,
+) -> None:
+    active = await _get_active_session(session, user) if user is not None else None
+    if active is not None:
+        await message.answer(
+            f"У вас открыто обращение {active.issue_key} в поддержке. "
+            "Сообщения из этого чата уходят в Jira.",
+            reply_markup=user_dialog_menu(),
+        )
+        return
     await state.clear()
     await message.answer(
         "Здравствуйте! Я бот поддержки «БАРС-Офис». Задайте вопрос — постараюсь ответить.",
@@ -82,38 +152,54 @@ async def start_dialog(message: Message, state: FSMContext) -> None:
 
 
 @router.message(F.text == BTN_EXIT_DIALOG)
-async def exit_dialog(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Вы вышли из диалога.", reply_markup=user_main_menu())
-
-
-@router.message(Command("request_access"))
-async def request_access(
+async def exit_dialog(
     message: Message,
+    state: FSMContext,
     session: AsyncSession,
     user: User,
-    bot: Bot,
 ) -> None:
-    if user.is_pending_manager:
+    active = await _get_active_session(session, user)
+    if active is not None:
+        await message.answer(
+            f"Обращение {active.issue_key} ещё открыто в Jira. "
+            "Диалог завершится, когда поддержка закроет задачу.",
+            reply_markup=user_dialog_menu(),
+        )
         return
-
-    user.is_pending_manager = True
-    await session.flush()
-    await notify_admins_manager_request(bot, session, user)
+    await state.clear()
+    await message.answer("Вы вышли из диалога.", reply_markup=user_main_menu())
 
 
 @router.message(UserStates.in_dialog)
 async def handle_question(
     message: Message,
     state: FSMContext,
-    session: AsyncSession,
+    session: AsyncSession | None,
     user: User,
     redis_context: RedisContextService,
     ai_service: AIService,
+    jira_client: JiraClient | None = None,
 ) -> None:
     question = (message.text or "").strip()
     if not question:
         await message.answer("Пожалуйста, отправьте вопрос текстом.")
+        return
+
+    active = await _get_active_session(session, user)
+    if active is not None and session is not None:
+        if jira_client is None:
+            await message.answer("Поддержка временно недоступна. Попробуйте позже.")
+            return
+        await _forward_to_jira(message, session, user, redis_context, jira_client, active, question)
+        await log_request(
+            str(user.telegram_id),
+            question,
+            0.0,
+            "escalated",
+            0,
+            f"jira:{active.issue_key}",
+            None,
+        )
         return
 
     context = await redis_context.get_context(user.telegram_id)
@@ -124,7 +210,7 @@ async def handle_question(
 
     if result.need_operator:
         # Уверенность ниже порога: ядро решило эскалировать.
-        # Метрику пишем после отправки ответа; тикет создаст колбэк ниже.
+        # Метрику пишем после отправки ответа; Jira-задачу создаст колбэк ниже.
         token = uuid4().hex[:12]
         await state.update_data(operator_token=token, operator_question=question)
         sent = await message.answer(
@@ -136,14 +222,14 @@ async def handle_question(
 
     sent = await message.answer(result.answer)  # id сообщения — по нему привяжется 👍/👎
     await _save_metrics(user, question, result, response_ms, sent.message_id)
-    await create_dialog_entry(
-        session,
-        user_id=user.telegram_id,
-        question=question,
-        answer=result.answer,
-        answered_by="ai",
-        ticket_status="none",
-    )
+    if session is not None:
+        await create_dialog_entry(
+            session,
+            user_id=user.telegram_id,
+            question=question,
+            answer=result.answer,
+            answered_by="ai",
+        )
 
 
 @router.callback_query(F.data.startswith("call_operator:"))
@@ -152,7 +238,8 @@ async def call_operator(
     state: FSMContext,
     session: AsyncSession,
     user: User,
-    bot: Bot,
+    redis_context: RedisContextService,
+    jira_client: JiraClient,
 ) -> None:
     token = (callback.data or "").removeprefix("call_operator:")
     data = await state.get_data()
@@ -161,31 +248,78 @@ async def call_operator(
         await callback.answer("Этот запрос уже неактуален.", show_alert=True)
         return
 
-    ticket = await create_dialog_entry(
-        session,
-        user_id=user.telegram_id,
-        question=question,
-        answer=None,
-        answered_by="none",
-        ticket_status="open",
+    active = await get_active_jira_session(session, user.telegram_id)
+    if active is not None:
+        await state.update_data(operator_token=None, operator_question=None)
+        await _remove_operator_button(callback)
+        await callback.answer("Обращение уже открыто в поддержке.", show_alert=True)
+        return
+
+    if not settings.jira_create_ready:
+        logger.warning("Вызов оператора без настроенной Jira")
+        await callback.answer(
+            "Поддержка временно недоступна: Jira не настроена.",
+            show_alert=True,
+        )
+        return
+
+    context = await redis_context.get_context(user.telegram_id)
+    transcript = format_transcript(context, user)
+    summary = f"БАРС-Офис: {question[:200]}"
+    description = (
+        "Обращение из бота «БАРС-Офис».\n"
+        f"{format_user_label(user)}\n"
+        "Полная история диалога с ИИ — в первом комментарии к задаче."
     )
-    await notify_managers_new_ticket(bot, session, ticket, user)
+    try:
+        issue_key, issue_url = await jira_client.create_issue(
+            project_key=settings.jira_project_key,
+            issue_type=settings.jira_issue_type,
+            summary=summary,
+            description=description,
+        )
+    except Exception:
+        logger.exception("Не удалось создать задачу Jira для пользователя %s", user.telegram_id)
+        await callback.answer(
+            "Не удалось создать обращение в Jira. Попробуйте ещё раз.",
+            show_alert=True,
+        )
+        return
+
+    jira_session = await create_jira_session(session, user.telegram_id, issue_key, issue_url)
+    try:
+        transcript_comment_id = await jira_client.add_comment(
+            issue_key,
+            f"{BOT_TRANSCRIPT_PREFIX}\n{transcript}",
+        )
+    except Exception:
+        logger.exception("Не удалось приложить историю диалога к задаче %s", issue_key)
+    else:
+        await set_jira_last_comment(session, jira_session, transcript_comment_id)
     await state.update_data(operator_token=None, operator_question=None)
+    await _remove_operator_button(callback)
 
     if callback.message is not None:
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except TelegramBadRequest:
-            pass
         await callback.message.answer(
-            "Запрос передан оператору. Ответ придёт в этот чат.",
+            f"Запрос передан в поддержку.\nЗадача Jira: {issue_key}\n{issue_url}",
             reply_markup=user_dialog_menu(),
         )
-    await callback.answer("Оператор вызван")
+    await callback.answer("Обращение создано")
 
 
 @router.message()
-async def fallback(message: Message) -> None:
+async def fallback(
+    message: Message,
+    session: AsyncSession,
+    user: User,
+    redis_context: RedisContextService,
+    jira_client: JiraClient,
+) -> None:
+    question = (message.text or "").strip()
+    active = await _get_active_session(session, user)
+    if active is not None and question:
+        await _forward_to_jira(message, session, user, redis_context, jira_client, active, question)
+        return
     await message.answer(
         "Нажмите «Задать вопрос», чтобы начать диалог.",
         reply_markup=user_main_menu(),
