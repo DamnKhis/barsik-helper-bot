@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
+from sqlalchemy.exc import DBAPIError
 
 from app.db import async_session_maker
 
@@ -24,8 +25,14 @@ class DatabaseMiddleware(BaseMiddleware):
             data["session"] = session
             try:
                 result = await handler(event, data)
-                await session.commit()
-                return result
             except Exception:
                 await session.rollback()
                 raise
+            try:
+                await session.commit()
+            except DBAPIError as exc:
+                # Remote Postgres бывает нестабилен: не роняем обработку апдейта.
+                await session.rollback()
+                logger.warning("Не удалось сохранить изменения в БД: %s", exc)
+                return None
+            return result

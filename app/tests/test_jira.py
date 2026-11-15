@@ -303,3 +303,202 @@ def test_call_operator_posts_ai_history_to_jira(monkeypatch) -> None:
     assert "Как оформить пропуск?" in body
     assert "Нужен паспорт." in body
     watermark.assert_awaited_once_with(session, row, 555)
+
+
+def test_add_attachment_posts_multipart() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/rest/api/2/issue/SUP-3/attachments":
+            assert request.headers["x-atlassian-token"] == "no-check"
+            assert request.headers["content-type"].startswith("multipart/form-data")
+            assert b"jpeg-bytes" in request.content
+            return httpx.Response(200, json=[{"id": "900", "filename": "photo.jpg"}])
+        return httpx.Response(404)
+
+    client = JiraClient(
+        base_url="https://jira.example.com",
+        email="bot@example.com",
+        token="secret",
+        transport=httpx.MockTransport(handler),
+    )
+    attachment_id = asyncio.run(
+        client.add_attachment("SUP-3", "photo.jpg", b"jpeg-bytes", "image/jpeg")
+    )
+    assert attachment_id == 900
+
+
+def test_handle_question_forwards_photo_to_jira(monkeypatch) -> None:
+    from app.bot.handlers import user as user_module
+
+    class FakeFile:
+        file_path = "photos/photo_7.jpg"
+
+    class FakeBot:
+        async def get_file(self, file_id, request_timeout=None):
+            return FakeFile()
+
+        async def download_file(self, file_path, destination, timeout=30, chunk_size=65536, seek=True):
+            destination.write(b"img-bytes")
+            return destination
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.attachments: list[tuple] = []
+            self.comments: list[tuple[str, str]] = []
+
+        async def add_attachment(self, issue_key, filename, content, content_type):
+            self.attachments.append((issue_key, filename, content, content_type))
+            return 321
+
+        async def add_comment(self, issue_key, body):
+            self.comments.append((issue_key, body))
+            return 42
+
+    class FakeRedis:
+        def __init__(self) -> None:
+            self.messages: list[tuple[int, str, str]] = []
+
+        async def append_message(self, user_id, role, content):
+            self.messages.append((user_id, role, content))
+
+    class FakeMessage:
+        text = None
+        caption = "Смотрите, что нашёл"
+        document = None
+        message_id = 7
+
+        def __init__(self) -> None:
+            self.photo = [SimpleNamespace(file_id="f1", file_size=100)]
+            self.answers: list[str] = []
+
+        async def answer(self, text, reply_markup=None):
+            self.answers.append(text)
+
+    row = SimpleNamespace(user_id=42, issue_key="SUP-1")
+    monkeypatch.setattr(user_module, "get_active_jira_session", AsyncMock(return_value=row))
+    watermark = AsyncMock()
+    monkeypatch.setattr(user_module, "set_jira_last_comment", watermark)
+
+    client = FakeClient()
+    redis = FakeRedis()
+    message = FakeMessage()
+    user = SimpleNamespace(telegram_id=42, full_name="Иван", username="ivan")
+
+    asyncio.run(
+        user_module.handle_question(
+            message,
+            SimpleNamespace(),
+            SimpleNamespace(),
+            user,
+            redis,
+            SimpleNamespace(),
+            client,
+            FakeBot(),
+        )
+    )
+
+    assert client.attachments == [("SUP-1", "photo_7.jpg", b"img-bytes", "image/jpeg")]
+    assert len(client.comments) == 1
+    body = client.comments[0][1]
+    assert body.startswith("[BARS-USER:42]")
+    assert "Смотрите, что нашёл" in body
+    assert "(вложение: photo_7.jpg)" in body
+    watermark.assert_awaited_once_with(SimpleNamespace(), row, 42)
+    assert redis.messages == [(42, "user", "[изображение: photo_7.jpg] Смотрите, что нашёл")]
+    assert message.answers == ["Изображение передано в поддержку."]
+
+
+def test_download_telegram_file_retries_transient_errors(monkeypatch) -> None:
+    from app.bot.handlers import user as user_module
+
+    class FakeFile:
+        file_path = "photos/file_1.jpg"
+
+    class FakeBot:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def get_file(self, file_id, request_timeout=None):
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("Request timeout error")
+            return FakeFile()
+
+        async def download_file(self, file_path, destination, timeout=30, chunk_size=65536, seek=True):
+            destination.write(b"image-bytes")
+            return destination
+
+    monkeypatch.setattr(user_module.asyncio, "sleep", AsyncMock())
+    bot = FakeBot()
+    data = asyncio.run(user_module._download_telegram_file(bot, SimpleNamespace(file_id="f1")))
+    assert data == b"image-bytes"
+    assert bot.calls == 3
+
+
+def test_poller_saves_useful_answer_to_support_answers(session_maker, tmp_path, monkeypatch) -> None:
+    from app.bot.services import support_answers as support_answers_module
+
+    monkeypatch.setattr(
+        support_answers_module.settings,
+        "support_answers_dir",
+        str(tmp_path / "support_answers"),
+    )
+
+    class FakeClient:
+        base_url = "https://jira.example.com"
+
+        async def get_issue_state(self, issue_key: str) -> JiraIssueState:
+            return JiraIssueState(
+                key=issue_key,
+                status_name="Полезно",
+                status_category="indeterminate",
+                summary="Как оформить пропуск?",
+            )
+
+        async def list_comments(self, issue_key: str, since_id: int = 0) -> list[JiraComment]:
+            return [
+                JiraComment(
+                    id=1,
+                    author="Иван",
+                    author_email="ivan@example.com",
+                    body="[BARS-USER:42]\nИван (@ivan), Telegram ID 42:\nКак оформить пропуск?",
+                ),
+                JiraComment(
+                    id=2,
+                    author="Поддержка",
+                    author_email="support@example.com",
+                    body="Нужен паспорт и заявка от руководителя.",
+                ),
+            ]
+
+    class FakeBot:
+        async def send_message(self, user_id: int, text: str) -> None:
+            return None
+
+    class FakeRedisContext:
+        async def append_message(self, user_id: int, role: str, content: str) -> None:
+            return None
+
+    async def prepare() -> None:
+        async with db_module.async_session_maker() as session:
+            session.add(db_module.User(telegram_id=42, role="user", full_name="Иван"))
+            await session.flush()
+            await db_module.create_jira_session(
+                session, 42, "KAN-77", "https://jira.example.com/browse/KAN-77"
+            )
+            await session.commit()
+
+    asyncio.run(prepare())
+
+    poller = jira_poller_module.JiraPoller(
+        bot=FakeBot(),
+        redis_context=FakeRedisContext(),
+        client=FakeClient(),
+        interval=1,
+    )
+    asyncio.run(poller.poll_once())
+
+    saved = tmp_path / "support_answers" / "KAN-77.md"
+    assert saved.is_file()
+    content = saved.read_text(encoding="utf-8")
+    assert "Как оформить пропуск?" in content
+    assert "Нужен паспорт и заявка от руководителя." in content

@@ -1,8 +1,11 @@
+import asyncio
 import logging
 import time
+from io import BytesIO
+from pathlib import Path
 from uuid import uuid4
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -77,7 +80,10 @@ async def _get_active_session(session: AsyncSession | None, user: User) -> JiraS
     return await get_active_jira_session(session, user.telegram_id)
 
 
-async def _forward_to_jira(
+MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024
+
+
+async def _forward_text_to_jira(
     message: Message,
     session: AsyncSession,
     user: User,
@@ -99,6 +105,124 @@ async def _forward_to_jira(
     await set_jira_last_comment(session, jira_session, comment_id)
     await redis_context.append_message(user.telegram_id, "user", question)
     await message.answer("Сообщение передано в поддержку.")
+
+
+def _image_payload(message: Message) -> tuple[object | None, str, str]:
+    """Вернуть (Telegram-файл, имя файла, MIME) для картинки в сообщении."""
+    if message.photo:
+        return message.photo[-1], f"photo_{message.message_id}.jpg", "image/jpeg"
+    document = message.document
+    if document is not None and (document.mime_type or "").startswith("image/"):
+        name = Path((document.file_name or f"image_{message.message_id}").replace("\\", "/")).name
+        if name in {"", ".", ".."}:
+            name = f"image_{message.message_id}"
+        return document, name, document.mime_type or "application/octet-stream"
+    return None, "", ""
+
+
+async def _download_telegram_file(bot: Bot, file_obj: object) -> bytes:
+    """Скачать файл из Telegram с ретраями: сеть до api.telegram.org бывает нестабильной."""
+    file_id = getattr(file_obj, "file_id", None)
+    if not file_id:
+        raise ValueError("У вложения нет file_id")
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            file = await bot.get_file(file_id, request_timeout=60)
+            if not file.file_path:
+                raise RuntimeError("Telegram не вернул путь к файлу")
+            buffer = BytesIO()
+            await bot.download_file(file.file_path, destination=buffer, timeout=60)
+            return buffer.getvalue()
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "Не удалось скачать файл из Telegram (попытка %s/3): %s", attempt + 1, exc
+            )
+            if attempt < 2:
+                await asyncio.sleep(1 + attempt)
+    raise last_exc or RuntimeError("Не удалось скачать файл из Telegram")
+
+
+async def _forward_attachment_to_jira(
+    message: Message,
+    session: AsyncSession,
+    user: User,
+    redis_context: RedisContextService,
+    jira_client: JiraClient,
+    jira_session: JiraSession,
+    bot: Bot | None,
+) -> None:
+    file_obj, filename, content_type = _image_payload(message)
+    if file_obj is None:
+        await message.answer("Поддерживаются текст и изображения.")
+        return
+    if bot is None:
+        await message.answer("Не удалось обработать изображение. Попробуйте отправить текстом.")
+        return
+
+    file_size = getattr(file_obj, "file_size", None) or 0
+    if file_size > MAX_ATTACHMENT_BYTES:
+        await message.answer(
+            f"Изображение больше {MAX_ATTACHMENT_BYTES // (1024 * 1024)} МБ. Отправьте поменьше."
+        )
+        return
+
+    try:
+        content = await _download_telegram_file(bot, file_obj)
+    except Exception:
+        logger.exception("Не удалось скачать изображение из Telegram")
+        await message.answer("Не удалось скачать изображение. Попробуйте ещё раз.")
+        return
+    if not content:
+        await message.answer("Изображение не загрузилось, попробуйте ещё раз.")
+        return
+
+    try:
+        await jira_client.add_attachment(jira_session.issue_key, filename, content, content_type)
+    except Exception:
+        logger.exception("Не удалось прикрепить файл к Jira %s", jira_session.issue_key)
+        await message.answer("Не удалось прикрепить изображение в поддержку. Попробуйте ещё раз.")
+        return
+
+    caption = (message.caption or "").strip()
+    label = f"{caption}\n\n(вложение: {filename})" if caption else f"(вложение: {filename})"
+    try:
+        comment_id = await jira_client.add_comment(
+            jira_session.issue_key,
+            format_user_comment(label, user),
+        )
+    except Exception:
+        logger.exception("Не удалось оставить комментарий к вложению %s", jira_session.issue_key)
+        await message.answer("Изображение загружено, но комментарий не добавился.")
+        return
+
+    await set_jira_last_comment(session, jira_session, comment_id)
+    context_line = f"[изображение: {filename}] {caption}".strip()
+    await redis_context.append_message(user.telegram_id, "user", context_line)
+    await message.answer("Изображение передано в поддержку.")
+
+
+async def _forward_message_to_jira(
+    message: Message,
+    session: AsyncSession,
+    user: User,
+    redis_context: RedisContextService,
+    jira_client: JiraClient,
+    jira_session: JiraSession,
+    bot: Bot | None = None,
+) -> None:
+    if message.photo or message.document:
+        await _forward_attachment_to_jira(
+            message, session, user, redis_context, jira_client, jira_session, bot
+        )
+        return
+    question = (message.text or "").strip()
+    if not question:
+        await message.answer("Пришлите текст или изображение.")
+        return
+    await _forward_text_to_jira(message, session, user, redis_context, jira_client, jira_session, question)
 
 
 async def _remove_operator_button(callback: CallbackQuery) -> None:
@@ -179,27 +303,32 @@ async def handle_question(
     redis_context: RedisContextService,
     ai_service: AIService,
     jira_client: JiraClient | None = None,
+    bot: Bot | None = None,
 ) -> None:
     question = (message.text or "").strip()
-    if not question:
-        await message.answer("Пожалуйста, отправьте вопрос текстом.")
-        return
 
     active = await _get_active_session(session, user)
     if active is not None and session is not None:
         if jira_client is None:
             await message.answer("Поддержка временно недоступна. Попробуйте позже.")
             return
-        await _forward_to_jira(message, session, user, redis_context, jira_client, active, question)
-        await log_request(
-            str(user.telegram_id),
-            question,
-            0.0,
-            "escalated",
-            0,
-            f"jira:{active.issue_key}",
-            None,
+        await _forward_message_to_jira(
+            message, session, user, redis_context, jira_client, active, bot
         )
+        if question:
+            await log_request(
+                str(user.telegram_id),
+                question,
+                0.0,
+                "escalated",
+                0,
+                f"jira:{active.issue_key}",
+                None,
+            )
+        return
+
+    if not question:
+        await message.answer("Пожалуйста, отправьте вопрос текстом.")
         return
 
     context = await redis_context.get_context(user.telegram_id)
@@ -314,11 +443,14 @@ async def fallback(
     user: User,
     redis_context: RedisContextService,
     jira_client: JiraClient,
+    bot: Bot | None = None,
 ) -> None:
-    question = (message.text or "").strip()
+    has_payload = bool(message.text or message.photo or message.document)
     active = await _get_active_session(session, user)
-    if active is not None and question:
-        await _forward_to_jira(message, session, user, redis_context, jira_client, active, question)
+    if active is not None and has_payload:
+        await _forward_message_to_jira(
+            message, session, user, redis_context, jira_client, active, bot
+        )
         return
     await message.answer(
         "Нажмите «Задать вопрос», чтобы начать диалог.",

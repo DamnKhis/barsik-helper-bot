@@ -1,0 +1,138 @@
+{
+  "build_id": "20261115T230543_1e01c5cb",
+  "collection": "bars_kb_20261115T230543_1e01c5cb",
+  "alias": "bars_kb_current",
+  "created_at": "2026-11-15T23:12:23.190459+00:00",
+  "pipeline_version": "0.1.0",
+  "source": {
+    "digest": "1e01c5cbf9415d1ad7c7bdb8f3d832dccdf103fc10c02d009108bd485bf18771",
+    "files": [
+      {
+        "path": "БП Командировка.pdf",
+        "sha256": "977996fbc4c6e9c5b5bc086c7cba9531b1e0ebff7bce2990dab101431a124bfa",
+        "size": 357812
+      },
+      {
+        "path": "БП Пропуск.docx",
+        "sha256": "47821bf8813234e41619ba07b152dc48414f878ba211526401c51ed768d18588",
+        "size": 182025
+      },
+      {
+        "path": "Реестр мебели.pdf",
+        "sha256": "2b4f79ca57f11d9e0d10be24f13dbae3f5929db853d03ba2b4f4436b9d6552d6",
+        "size": 272125
+      },
+      {
+        "path": "Справочник_БАРС_Офис_—_Расширенная_фактологическая_база_знаний.pdf",
+        "sha256": "d2d1d3ced1b2e13c8501640f2b78fa43919830be4d8fa56ccc5669494d79e391",
+        "size": 308076
+      },
+      {
+        "path": "Функциональные_возможности_работы_с_БАРС_Офисом.pdf",
+        "sha256": "036263d62669c831dbcb4bff08fddd78a3e671e6efb9a81093449875cde09972",
+        "size": 1002931
+      }
+    ]
+  },
+  "embedding": {
+    "provider": "qwen",
+    "model": "qwen/qwen3-embedding-8b",
+    "dim": 1024
+  },
+  "enrichment": {
+    "llm_provider": "qwen",
+    "llm_model": "qwen/qwen3.8-flash",
+    "vision_provider": "qwen",
+    "vision_model": "qwen/qwen3.8-flash"
+  },
+  "sparse": {
+    "type": "bm25",
+    "vocab_size": 3399,
+    "modifier": "idf"
+  },
+  "documents": [
+    {
+      "doc_id": "bp-komandirovka",
+      "title": "БП Командировка",
+      "source_path": "docs/source/БП Командировка.pdf",
+      "source_type": "pdf",
+      "version": "977996fbc4c6e9c5",
+      "sha256": "977996fbc4c6e9c5b5bc086c7cba9531b1e0ebff7bce2990dab101431a124bfa",
+      "page_count": 15,
+      "section_count": 7,
+      "chunk_count": 21,
+      "github_url": ""
+    },
+    {
+      "doc_id": "bp-propusk",
+      "title": "БП Пропуск",
+      "source_path": "docs/source/БП Пропуск.docx",
+      "source_type": "docx",
+      "version": "47821bf8813234e4",
+      "sha256": "47821bf8813234e41619ba07b152dc48414f878ba211526401c51ed768d18588",
+      "page_count": 1,
+      "section_count": 14,
+      "chunk_count": 18,
+      "github_url": ""
+    },
+    {
+      "doc_id": "reestr-mebeli",
+      "title": "Реестр мебели",
+      "source_path": "docs/source/Реестр мебели.pdf",
+      "source_type": "pdf",
+      "version": "2b4f79ca57f11d9e",
+      "sha256": "2b4f79ca57f11d9e0d10be24f13dbae3f5929db853d03ba2b4f4436b9d6552d6",
+      "page_count": 10,
+      "section_count": 9,
+      "chunk_count": 15,
+      "github_url": ""
+    },
+    {
+      "doc_id": "spravocnik-bars-ofis-rassirennaa-faktologiceskaa-baza-znanii",
+      "title": "ЕИС • БАЗА ЗНАНИЙ СЛУЖБЫ ПОДДЕРЖКИ «БАРС-ОФИС»",
+      "source_path": "docs/source/Справочник_БАРС_Офис_—_Расширенная_фактологическая_база_знаний.pdf",
+      "source_type": "pdf",
+      "version": "d2d1d3ced1b2e13c",
+      "sha256": "d2d1d3ced1b2e13c8501640f2b78fa43919830be4d8fa56ccc5669494d79e391",
+      "page_count": 5,
+      "section_count": 1,
+      "chunk_count": 12,
+      "github_url": ""
+    },
+    {
+      "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+      "title": "Функциональные возможности",
+      "source_path": "docs/source/Функциональные_возможности_работы_с_БАРС_Офисом.pdf",
+      "source_type": "pdf",
+      "version": "036263d62669c831",
+      "sha256": "036263d62669c831dbcb4bff08fddd78a3e671e6efb9a81093449875cde09972",
+      "page_count": 26,
+      "section_count": 33,
+      "chunk_count": 66,
+      "github_url": ""
+    }
+  ],
+  "counts": {
+    "documents": 5,
+    "chunks": 132,
+    "images": 38,
+    "faq": 13,
+    "tables": 4,
+    "diagrams": 2,
+    "screenshots": 36
+  },
+  "qdrant": {
+    "count": 132,
+    "snapshot": "bars_kb_20261115T230543_1e01c5cb-7408061863732421-2026-11-15-23-12-20-0.snapshot",
+    "mode": "server"
+  },
+  "export": {
+    "path": "dist/20261115T230543_1e01c5cb",
+    "chunks": 132,
+    "images": 38,
+    "latest": "20261115T230543_1e01c5cb",
+    "pruned": [
+      "20261114T182839_a5023733"
+    ]
+  }
+}

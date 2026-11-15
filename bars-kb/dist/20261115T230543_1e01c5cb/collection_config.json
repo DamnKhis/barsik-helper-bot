@@ -1,0 +1,30 @@
+{
+  "collection": "bars_kb_20261115T230543_1e01c5cb",
+  "alias": "bars_kb_current",
+  "vectors": {
+    "dense": {
+      "size": 1024,
+      "distance": "Cosine"
+    },
+    "bm25": {
+      "modifier": "idf"
+    }
+  },
+  "embedding": {
+    "provider": "qwen",
+    "model": "qwen/qwen3-embedding-8b",
+    "dim": 1024,
+    "normalize": true
+  },
+  "sparse": {
+    "type": "bm25",
+    "language": "ru"
+  },
+  "payload_indexes": [
+    "doc_id",
+    "chunk_type",
+    "version",
+    "tags"
+  ],
+  "snapshot": "bars_kb_20261115T230543_1e01c5cb-7408061863732421-2026-11-15-23-12-20-0.snapshot"
+}

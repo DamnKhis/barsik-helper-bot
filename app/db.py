@@ -38,6 +38,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateSchema
 
 from app.config import settings
@@ -288,11 +289,19 @@ class JiraSession(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+# Remote Postgres рвёт соединения по простою, поэтому для него не кэшируем коннекты.
+# SQLite остаётся на обычном пуле (файл, сброс неактуален).
+POOL_KWARGS: dict = (
+    {"poolclass": NullPool}
+    if settings.database_url.startswith("postgres")
+    else {"pool_pre_ping": True, "pool_recycle": 300}
+)
+
 engine = create_async_engine(
     settings.database_url,
     echo=False,
-    pool_pre_ping=True,
     connect_args=ENGINE_CONNECT_ARGS,
+    **POOL_KWARGS,
 )
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

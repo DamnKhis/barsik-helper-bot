@@ -2,10 +2,27 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+
+def _drop_broken_ca_bundle() -> None:
+    """SSL_CERT_FILE с чужого компьютера ломает httpx/requests до открытия сокета."""
+    for var in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        raw = os.environ.get(var)
+        if raw and not Path(raw).expanduser().exists():
+            logger.warning("%s=%s не существует — переменная отключена", var, raw)
+            os.environ.pop(var, None)
+
+
+_drop_broken_ca_bundle()
 
 
 class Settings(BaseSettings):
@@ -28,6 +45,8 @@ class Settings(BaseSettings):
 
     # Документы администратора
     uploaded_docs_dir: str = "uploaded_docs"
+    # Полезные ответы поддержки из Jira (Markdown)
+    support_answers_dir: str = "bars-kb/docs/support_answers"
 
     # Дашборд аналитики: HTTP Basic. Пустой пароль = страница открыта всем.
     dashboard_user: str = "admin"
@@ -38,7 +57,7 @@ class Settings(BaseSettings):
     jira_email: str = ""
     jira_api_token: str = Field(
         default="",
-        validation_alias=AliasChoices("JIRA_API_TOKEN", "JIRO_API_KEY"),
+        validation_alias=AliasChoices("JIRA_API_TOKEN", "JIRO_API_KEY", "JIRO_API_TOKEN"),
     )
     jira_project_key: str = ""
     jira_issue_type: str = "Task"

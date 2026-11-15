@@ -42,7 +42,8 @@ services:
       - ./data:/app/data
       - ./uploaded_docs:/app/uploaded_docs
       # Живое автообновление KB: бот также кладёт сюда загруженные документы
-      - ./bars-kb/docs/source:/app/bars-kb/docs/source
+      # и полезные ответы поддержки (docs/support_answers)
+      - ./bars-kb/docs:/app/bars-kb/docs
       - ./bars-kb/dist:/app/bars-kb/dist
     ports:
       - "8000:8000"

@@ -7,6 +7,7 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
+from sqlalchemy.exc import DBAPIError
 
 from app.bot.services.jira import (
     BOT_COMMENT_PREFIX,
@@ -16,6 +17,7 @@ from app.bot.services.jira import (
     is_done_state,
 )
 from app.bot.services.redis_context import RedisContextService
+from app.bot.services.support_answers import is_useful_status, save_support_answer
 from app.config import settings
 from app.db import (
     JiraSession,
@@ -67,11 +69,25 @@ class JiraPoller:
                 await self.poll_once()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("Ошибка фоновой синхронизации с Jira")
+            except Exception as exc:
+                logger.warning("Ошибка фоновой синхронизации с Jira: %s", exc)
+                logger.debug("Полный трейсбек поллера Jira", exc_info=True)
             await asyncio.sleep(self.interval)
 
     async def poll_once(self) -> None:
+        """Одна иттерация. При обрыве соединения к БД пробуем ещё раз."""
+        for attempt in range(2):
+            try:
+                await self._poll_once()
+                return
+            except DBAPIError as exc:
+                if attempt == 0:
+                    logger.debug("Повтор опроса Jira из-за БД: %s", exc)
+                    await asyncio.sleep(1)
+                    continue
+                raise
+
+    async def _poll_once(self) -> None:
         async with async_session_maker() as session:
             sessions = await list_active_jira_sessions(session)
             for jira_session in sessions:
@@ -84,12 +100,14 @@ class JiraPoller:
                         f"Обращение {jira_session.issue_key} больше не найдено в Jira. "
                         "Диалог с поддержкой завершён.",
                     )
-                except Exception:
-                    logger.exception(
-                        "Не удалось синхронизировать Jira %s (user_id=%s)",
+                except Exception as exc:
+                    logger.warning(
+                        "Не удалось синхронизировать Jira %s (user_id=%s): %s",
                         jira_session.issue_key,
                         jira_session.user_id,
+                        exc,
                     )
+                    logger.debug("Полный трейсбек синхронизации Jira", exc_info=True)
             await session.commit()
 
     async def _sync_session(self, session, jira_session: JiraSession) -> None:
@@ -102,6 +120,9 @@ class JiraPoller:
             await self._deliver_comment(jira_session, comment)
             await set_jira_last_comment(session, jira_session, comment.id)
 
+        if is_useful_status(state.status_name):
+            await self._save_useful_answer(jira_session, state)
+
         if is_done_state(state):
             await close_jira_session(session, jira_session)
             await self._send(
@@ -109,6 +130,28 @@ class JiraPoller:
                 f"Обращение {jira_session.issue_key} закрыто. "
                 "Диалог с поддержкой завершён — можно снова задать вопрос ИИ.",
             )
+
+    async def _save_useful_answer(self, jira_session: JiraSession, state) -> None:
+        """Тикет помечен полезным — выгружаем переписку в Markdown для KB."""
+        try:
+            comments = await self.client.list_comments(jira_session.issue_key, since_id=0)
+            issue_url = jira_session.issue_url or (
+                f"{self.client.base_url}/browse/{jira_session.issue_key}"
+            )
+            saved = await save_support_answer(
+                self.client,
+                jira_session.issue_key,
+                issue_url,
+                getattr(state, "summary", ""),
+                comments,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Не удалось сохранить полезный ответ %s: %s", jira_session.issue_key, exc
+            )
+            return
+        if saved is not None:
+            logger.info("Полезный ответ %s -> %s", jira_session.issue_key, saved)
 
     async def _deliver_comment(self, jira_session: JiraSession, comment: JiraComment) -> None:
         if self._is_own_comment(comment):

@@ -39,6 +39,7 @@ class JiraIssueState:
     key: str
     status_name: str
     status_category: str
+    summary: str = ""
 
 
 @dataclass(slots=True)
@@ -47,6 +48,15 @@ class JiraComment:
     author: str
     author_email: str
     body: str
+
+
+@dataclass(slots=True)
+class JiraAttachment:
+    id: str
+    filename: str
+    mime_type: str
+    size: int
+    content_url: str
 
 
 def _comment_id(value: Any) -> int:
@@ -140,6 +150,7 @@ class JiraClient:
             auth=auth,
             timeout=self.timeout,
             transport=self.transport,
+            follow_redirects=True,
         )
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -200,9 +211,54 @@ class JiraClient:
         data = await self._request("POST", path, json={"body": body[:30000]})
         return _comment_id((data or {}).get("id"))
 
+    async def add_attachment(
+        self,
+        issue_key: str,
+        filename: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> int:
+        path = f"/rest/api/2/issue/{quote(issue_key, safe='')}/attachments"
+        data = await self._request(
+            "POST",
+            path,
+            files={"file": (filename, content, content_type)},
+            headers={"X-Atlassian-Token": "no-check"},
+        )
+        if isinstance(data, list) and data:
+            return _comment_id(data[0].get("id"))
+        return 0
+
+    async def list_attachments(self, issue_key: str) -> list[JiraAttachment]:
+        path = f"/rest/api/2/issue/{quote(issue_key, safe='')}"
+        data = await self._request("GET", path, params={"fields": "attachment"})
+        fields = (data or {}).get("fields") or {}
+        attachments: list[JiraAttachment] = []
+        for raw in fields.get("attachment") or []:
+            attachments.append(
+                JiraAttachment(
+                    id=str(raw.get("id") or ""),
+                    filename=str(raw.get("filename") or ""),
+                    mime_type=str(raw.get("mimeType") or ""),
+                    size=int(raw.get("size") or 0),
+                    content_url=str(raw.get("content") or ""),
+                )
+            )
+        return attachments
+
+    async def download(self, url: str) -> bytes:
+        async with self._http() as client:
+            response = await client.get(url, headers={"Accept": "*/*"})
+        if response.status_code >= 400:
+            raise JiraError(
+                f"Jira не отдала вложение {response.status_code}",
+                response.status_code,
+            )
+        return response.content
+
     async def get_issue_state(self, issue_key: str) -> JiraIssueState:
         path = f"/rest/api/2/issue/{quote(issue_key, safe='')}"
-        data = await self._request("GET", path, params={"fields": "status"})
+        data = await self._request("GET", path, params={"fields": "status,summary"})
         fields = (data or {}).get("fields") or {}
         status = fields.get("status") or {}
         category = status.get("statusCategory") or {}
@@ -210,6 +266,7 @@ class JiraClient:
             key=str((data or {}).get("key") or issue_key),
             status_name=str(status.get("name") or ""),
             status_category=str(category.get("key") or ""),
+            summary=str(fields.get("summary") or ""),
         )
 
     async def list_comments(self, issue_key: str, since_id: int = 0) -> list[JiraComment]:
