@@ -34,6 +34,11 @@ def _configure_logging(level: str) -> None:
     )
 
 
+def _mock_export_blocked(settings, allow_mock: bool) -> bool:
+    """True when an exported build would silently be a mock/hash one."""
+    return not allow_mock and (settings.mock_llm or settings.mock_embedding)
+
+
 def _current_manifest(settings) -> dict | None:
     """Return the manifest of the build that clients currently resolve."""
     manifest = latest_manifest(settings.dist_dir)
@@ -65,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     p_ingest.add_argument("--keep", type=int, default=2, help="Builds to keep in dist/ (default: 2)")
     p_ingest.add_argument("--force", action="store_true", help="Rebuild even if documents are unchanged")
     p_ingest.add_argument("--eval", action="store_true", help="Run retrieval eval after the build")
+    p_ingest.add_argument("--allow-mock", action="store_true", help="Allow exporting a mock/hash build")
 
     p_sync = sub.add_parser("sync", help="Sync local folder or GitHub docs and rebuild")
     p_sync.add_argument("--source", type=Path, default=None)
@@ -74,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("--eval", action="store_true", help="Run retrieval eval after the build")
     p_sync.add_argument("--publish", action="store_true", help="Commit and push the updated dist/")
     p_sync.add_argument("--no-push", action="store_true", help="With --publish: commit without pushing")
-    p_sync.add_argument("--allow-mock", action="store_true", help="Allow publishing a mock/hash build")
+    p_sync.add_argument("--allow-mock", action="store_true", help="Allow building/publishing a mock/hash build")
 
     p_builds = sub.add_parser("builds", help="List builds in dist/")
     p_builds.add_argument("--json", action="store_true", help="Print raw JSON")
@@ -117,14 +123,13 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
         if manifest is None:
-            if (
-                getattr(args, "publish", False)
-                and not args.allow_mock
-                and (settings.mock_llm or settings.mock_embedding)
-            ):
+            # An exported build replaces dist/LATEST, so a mock/hash build must
+            # never overwrite a real one by accident (a cron job without env is
+            # the classic case).
+            if do_export and _mock_export_blocked(settings, args.allow_mock):
                 logger.error(
-                    "refusing to build a mock/hash KB for publishing; set QWEN_API_KEY "
-                    "or pass --allow-mock"
+                    "refusing to export a mock/hash KB; set QWEN_API_KEY "
+                    "(or run with --no-export / --allow-mock)"
                 )
                 return 2
             manifest = ingest(

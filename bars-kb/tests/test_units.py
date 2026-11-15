@@ -14,6 +14,7 @@ from unittest import mock
 
 import pymupdf
 from bars_kb.chunker import Chunker
+from bars_kb.cli import _mock_export_blocked
 from bars_kb.config import load_settings
 from bars_kb.embeddings import build_embedder
 from bars_kb.embeddings.hash_embedder import HashEmbedder
@@ -537,6 +538,22 @@ class DistFlowTest(unittest.TestCase):
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 self.assertEqual(current_branch(repo), "feature/bars-kb")
+
+
+class MockGuardTest(unittest.TestCase):
+    def test_mock_export_is_blocked_unless_allowed(self) -> None:
+        settings = replace(
+            load_settings(ROOT),
+            llm_provider="mock",
+            vision_provider="mock",
+            embedding_provider="hash",
+            qwen_api_key="",
+        )
+        self.assertTrue(_mock_export_blocked(settings, allow_mock=False))
+        self.assertFalse(_mock_export_blocked(settings, allow_mock=True))
+
+        real = replace(settings, llm_provider="qwen", embedding_provider="qwen", qwen_api_key="sk-test")
+        self.assertFalse(_mock_export_blocked(real, allow_mock=False))
 
 
 class EvalRelevanceTest(unittest.TestCase):
