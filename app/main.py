@@ -15,6 +15,8 @@ from app.bot.services.ai_service import AIService
 from app.bot.services.redis_context import RedisContextService
 from app.config import settings
 from app.db import engine, init_async_db, init_db
+from app.kb_autosync import start as start_kb_autosync
+from app.kb_autosync import stop as stop_kb_autosync
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,8 @@ async def lifespan(app: FastAPI):
     app.state.polling_task = None
     app.state.bot = None
     app.state.dispatcher = None
+    # Локальное автообновление bars-kb/dist: отдельный процесс не нужен.
+    app.state.kb_autosync = await start_kb_autosync()
 
     if settings.bot_token:
         bot = create_bot()
@@ -64,6 +68,7 @@ async def lifespan(app: FastAPI):
             await app.state.bot.session.close()
         if app.state.dispatcher is not None:
             await app.state.dispatcher.storage.close()
+        await stop_kb_autosync(app.state.kb_autosync)
         await redis.aclose()
         await engine.dispose()
         logger.info("Приложение остановлено")

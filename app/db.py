@@ -25,8 +25,8 @@ from typing import cast
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    CursorResult,
     CheckConstraint,
+    CursorResult,
     DateTime,
     Float,
     ForeignKey,

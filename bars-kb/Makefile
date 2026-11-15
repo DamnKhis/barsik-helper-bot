@@ -1,4 +1,4 @@
-.PHONY: install ingest sync publish update builds rollback eval status fixtures test clean restore query slides
+.PHONY: install ingest sync publish update watch builds rollback eval status fixtures test clean restore query slides
 
 PY := .venv/bin/python
 BARS := .venv/bin/bars-kb
@@ -19,6 +19,9 @@ publish:
 
 update:
 	deploy/update-kb.sh
+
+watch:
+	$(BARS) watch
 
 builds:
 	$(BARS) builds
