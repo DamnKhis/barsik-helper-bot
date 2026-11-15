@@ -6,6 +6,9 @@
 <title>БАРС-Офис — аналитика первой линии</title>
 <!-- Chart.js 4.4.1 отдаётся локально из app/static (работает без интернета) -->
 <script src="/static/chart.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   /* ===== Палитра БАРС Груп ===== */
   :root {
@@ -22,7 +25,7 @@
   body {
     background: var(--bg);
     color: var(--ink);
-    font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: 'Golos Text', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 14px;
     line-height: 1.45;
   }
@@ -387,7 +390,7 @@ document.getElementById("period").addEventListener("click", (event) => {
 });
 
 if (window.Chart) {
-  Chart.defaults.font.family = "-apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+  Chart.defaults.font.family = "'Golos Text', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
   Chart.defaults.color = "#0B1F3A";
   refresh();
   setInterval(refresh, 15000);
