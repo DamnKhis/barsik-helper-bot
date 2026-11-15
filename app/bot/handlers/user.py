@@ -87,10 +87,15 @@ async def handle_question(
         return
 
     context = await redis_context.get_context(user.telegram_id)
+    t0 = time.monotonic()
     known, answer = await get_ai_answer(user.telegram_id, question, context)
+    response_ms = int((time.monotonic() - t0) * 1000)
 
     if known:
-        await message.answer(answer)
+        sent = await message.answer(answer)                    # ловим id сообщения!
+        await redis_context.append_pair(user.telegram_id, question, answer)
+        await log_request(str(user.telegram_id), question, 0.0, "answered",
+                          response_ms, "", sent.message_id)
         await redis_context.append_pair(user.telegram_id, question, answer)
         await create_dialog_entry(
             session,
@@ -114,6 +119,7 @@ async def handle_question(
         ticket_status="open",
     )
     await notify_managers_new_ticket(bot, session, ticket, user)
+    await log_request(str(user.telegram_id), question, 0.0, "escalated", response_ms)
 
 
 @router.message()
