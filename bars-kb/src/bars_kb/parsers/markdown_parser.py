@@ -1,10 +1,45 @@
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
 from pathlib import Path
 
 from ..models import Block, Document
 from .docx_parser import _slug, build_sections
+from .image_filter import inspect_image
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_image(link: str, base_dir: Path, images_dir: Path) -> tuple[Path, str] | None:
+    """Найти картинку по ссылке из Markdown и положить копию в ``images_dir``.
+
+    Ссылки в Markdown относительные (например
+    ``attachments/KAN-21/20261115T234029_843476c3.jpg``), поэтому ищем файл
+    рядом с самим документом. Копия нужна потому, что дальше пайплайн ищет
+    картинки относительно ``data/`` и иначе чанк с изображением терялся бы.
+    """
+    raw = link.split()[0].strip().strip("<>")
+    if "://" in raw:  # внешняя ссылка, файла рядом нет
+        return None
+    target = Path(raw)
+    candidate = target if target.is_absolute() else base_dir / target
+    if not candidate.is_file():
+        logger.debug("markdown image not found: %s", candidate)
+        return None
+    blob = candidate.read_bytes()
+    verdict = inspect_image(blob)
+    if not verdict.ok:
+        logger.debug("skip markdown image %s: %s", candidate.name, verdict.reason)
+        return None
+    digest = hashlib.sha256(blob).hexdigest()
+    suffix = ".png" if blob.startswith(b"\x89PNG") else ".jpg"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    copy = images_dir / f"{digest[:16]}{suffix}"
+    if not copy.exists():
+        copy.write_bytes(blob)
+    return copy, digest
 
 
 def parse_markdown(path: Path, images_dir: Path, version: str) -> Document:
@@ -44,12 +79,17 @@ def parse_markdown(path: Path, images_dir: Path, version: str) -> Document:
         image = re.match(r"!\[([^\]]*)\]\(([^)]+)\)", line.strip())
         if image:
             flush_paragraph()
+            resolved = resolve_image(image.group(2), path.parent, images_dir)
+            if resolved is None:
+                paragraph.append(line.strip())  # ссылку оставляем текстом
+                continue
+            copied, digest = resolved
             blocks.append(
                 Block(
                     kind="image",
-                    caption=image.group(1),
-                    image_path=image.group(2),
-                    meta={"source": "markdown"},
+                    caption=image.group(1).strip() or copied.stem,
+                    image_path=str(copied),
+                    meta={"sha256": digest, "source": "markdown"},
                 )
             )
             continue

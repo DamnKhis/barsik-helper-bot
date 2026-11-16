@@ -329,6 +329,7 @@ class Chunker:
             version=document.version,
             meta={
                 "doc_type": document.source_type,
+                "doc_kind": document.kind,
                 "source_path": document.source_path,
                 **(meta or {}),
             },

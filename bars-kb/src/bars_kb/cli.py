@@ -20,7 +20,7 @@ if __package__ in {None, ""}:
 from .config import load_settings
 from .eval.runner import run_eval
 from .exports import latest_manifest, list_builds, previous_build, read_latest, write_latest
-from .pipeline import ingest, iter_sources, source_fingerprint
+from .pipeline import collect_sources, fingerprint_sources, ingest
 
 LOG_FORMAT = "[%(asctime)s] %(levelname)s - %(name)s - %(message)s"
 logger = logging.getLogger("bars_kb.cli")
@@ -56,12 +56,37 @@ def _current_manifest(settings) -> dict | None:
     return None
 
 
-def _needs_rebuild(settings, source: Path) -> tuple[bool, str | None]:
+def _resolve_sources(settings, args) -> list[tuple[Path, str]]:
+    """Какие папки собирать: документация + решённые обращения поддержки.
+
+    Если папки заданы явно (``--source``), берём ровно их: так локальные запуски
+    и тесты остаются изолированными. Без явных папок документация берётся из
+    ``DOCS_PATH``, а обращения — из ``SUPPORT_DOCS_PATH`` (если папка есть).
+    """
+    explicit = [Path(item) for item in (getattr(args, "source", None) or [])]
+    explicit_support = [Path(item) for item in (getattr(args, "support_source", None) or [])]
+    no_support = bool(getattr(args, "no_support", False))
+
+    sources: list[tuple[Path, str]] = [(path, "doc") for path in explicit] or [(settings.inbox, "doc")]
+    if no_support:
+        return sources
+    if explicit_support:
+        sources.extend((path, "support") for path in explicit_support)
+    elif not explicit:
+        support = settings.support_inbox
+        if Path(support).exists():
+            sources.append((Path(support), "support"))
+        else:
+            logger.debug("support folder is missing, skipping: %s", support)
+    return sources
+
+
+def _needs_rebuild(settings, sources: list[tuple[Path, str]] | None = None) -> tuple[bool, str | None]:
     """Compare document contents with the build clients currently use."""
-    files = iter_sources(source)
+    files = collect_sources(settings, sources)
     if not files:
         return True, None
-    digest, _ = source_fingerprint(files, source)
+    digest, _ = fingerprint_sources(files)
     current = _current_manifest(settings)
     if current and (current.get("source") or {}).get("digest") == digest:
         return False, digest
@@ -77,8 +102,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def add_source_args(target) -> None:
+        target.add_argument(
+            "--source",
+            type=Path,
+            action="append",
+            default=None,
+            help="Папка с документацией (можно указать несколько раз)",
+        )
+        target.add_argument(
+            "--support-source",
+            type=Path,
+            action="append",
+            default=None,
+            help="Папка с решёнными обращениями поддержки (по умолчанию docs/support_answers)",
+        )
+        target.add_argument(
+            "--no-support",
+            action="store_true",
+            help="Не подключать решённые обращения к сборке",
+        )
+
     p_ingest = sub.add_parser("ingest", help="Build the knowledge base from a local folder")
-    p_ingest.add_argument("--source", type=Path, default=None)
+    add_source_args(p_ingest)
     p_ingest.add_argument("--no-export", action="store_true")
     p_ingest.add_argument("--keep", type=int, default=2, help="Builds to keep in dist/ (default: 2)")
     p_ingest.add_argument("--force", action="store_true", help="Rebuild even if documents are unchanged")
@@ -86,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p_ingest.add_argument("--allow-mock", action="store_true", help="Allow exporting a mock/hash build")
 
     p_sync = sub.add_parser("sync", help="Sync local folder or GitHub docs and rebuild")
-    p_sync.add_argument("--source", type=Path, default=None)
+    add_source_args(p_sync)
     p_sync.add_argument("--github", action="store_true", help="Download docs from GitHub first")
     p_sync.add_argument("--keep", type=int, default=2, help="Builds to keep in dist/ (default: 2)")
     p_sync.add_argument("--force", action="store_true", help="Rebuild even if documents are unchanged")
@@ -96,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("--allow-mock", action="store_true", help="Allow building/publishing a mock/hash build")
 
     p_watch = sub.add_parser("watch", help="Watch docs and rebuild dist when they change")
-    p_watch.add_argument("--source", type=Path, default=None)
+    add_source_args(p_watch)
     p_watch.add_argument("--interval", type=int, default=60, help="Seconds between checks (default: 60)")
     p_watch.add_argument("--keep", type=int, default=2, help="Builds to keep in dist/ (default: 2)")
     p_watch.add_argument("--force", action="store_true", help="Rebuild once even if documents are unchanged")
@@ -124,16 +170,20 @@ def main(argv: list[str] | None = None) -> int:
     settings = load_settings()
 
     if args.command in {"ingest", "sync"}:
-        source = args.source or settings.inbox
+        sources = _resolve_sources(settings, args)
         if args.command == "sync" and args.github:
             from .sources.github import sync_github
 
-            source = sync_github(settings)
+            # Документация приходит из GitHub, обращений в нём может не быть —
+            # их берём из локальной папки пакета, если она заведена.
+            sources = [(sync_github(settings), "doc")]
+            if not args.no_support and Path(settings.support_inbox).exists():
+                sources.append((Path(settings.support_inbox), "support"))
 
         do_export = not getattr(args, "no_export", False)
         manifest = None
         if do_export and not args.force:
-            changed, digest = _needs_rebuild(settings, source)
+            changed, digest = _needs_rebuild(settings, sources)
             if not changed:
                 manifest = _current_manifest(settings)
                 logger.info(
@@ -153,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             manifest = ingest(
                 settings,
-                source=source,
+                sources=sources,
                 export=do_export,
                 keep=args.keep,
                 evaluate=getattr(args, "eval", False),
@@ -175,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "watch":
-        source = args.source or settings.inbox
+        sources = _resolve_sources(settings, args)
         if _mock_export_blocked(settings, args.allow_mock):
             logger.error(
                 "refusing to export a mock/hash KB; set QWEN_API_KEY (or pass --allow-mock)"
@@ -183,24 +233,28 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         interval = max(5, int(args.interval))
-        logger.info("watch: %s, check every %ss (Ctrl+C to stop)", source, interval)
+        logger.info(
+            "watch: %s, check every %ss (Ctrl+C to stop)",
+            ", ".join(f"{path} [{kind}]" for path, kind in sources),
+            interval,
+        )
         force_next = bool(args.force)
         while True:
-            files = iter_sources(source)
+            files = collect_sources(settings, sources)
             changed = False
             digest = None
             if not files:
-                logger.debug("watch: no supported documents in %s", source)
+                logger.debug("watch: no supported documents in %s", sources)
             elif force_next:
                 changed = True
             else:
-                changed, digest = _needs_rebuild(settings, source)
+                changed, digest = _needs_rebuild(settings, sources)
 
             if changed and files:
                 try:
                     manifest = ingest(
                         settings,
-                        source=source,
+                        sources=sources,
                         export=True,
                         keep=args.keep,
                         evaluate=args.eval,
