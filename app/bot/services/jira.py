@@ -269,6 +269,29 @@ class JiraClient:
             summary=str(fields.get("summary") or ""),
         )
 
+    async def resolve_issue(self, issue_key: str) -> bool:
+        """Перевести задачу в завершающий статус.
+
+        Ищем переход, ведущий в категорию ``done`` (или статус из списка
+        завершающих), и применяем его. ``True`` — переход выполнен.
+        """
+        path = f"/rest/api/2/issue/{quote(issue_key, safe='')}/transitions"
+        data = await self._request("GET", path)
+        transitions = (data or {}).get("transitions") or []
+        target: dict[str, Any] | None = None
+        for transition in transitions:
+            to_status = transition.get("to") or {}
+            category = str((to_status.get("statusCategory") or {}).get("key") or "").lower()
+            name = str(to_status.get("name") or "").strip().lower()
+            if category == "done" or name in DONE_STATUS_NAMES:
+                target = transition
+                break
+        if target is None:
+            logger.warning("В Jira %s нет перехода в завершающий статус", issue_key)
+            return False
+        await self._request("POST", path, json={"transition": {"id": str(target.get("id"))}})
+        return True
+
     async def list_comments(self, issue_key: str, since_id: int = 0) -> list[JiraComment]:
         path = f"/rest/api/2/issue/{quote(issue_key, safe='')}/comment"
         comments: list[JiraComment] = []
@@ -301,14 +324,17 @@ class JiraClient:
         return comments
 
 
+DONE_STATUS_NAMES = {
+    "done",
+    "closed",
+    "resolved",
+    "готово",
+    "закрыто",
+    "выполнено",
+}
+
+
 def is_done_state(state: JiraIssueState) -> bool:
     if state.status_category.lower() == "done":
         return True
-    return state.status_name.strip().lower() in {
-        "done",
-        "closed",
-        "resolved",
-        "готово",
-        "закрыто",
-        "выполнено",
-    }
+    return state.status_name.strip().lower() in DONE_STATUS_NAMES

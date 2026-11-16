@@ -13,7 +13,11 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters import RoleFilter
-from app.bot.keyboards.inline import call_operator_keyboard
+from app.bot.keyboards.inline import (
+    answer_rating_keyboard,
+    call_operator_keyboard,
+    close_ticket_confirm_keyboard,
+)
 from app.bot.keyboards.reply import (
     BTN_ASK,
     BTN_EXIT_DIALOG,
@@ -35,11 +39,13 @@ from app.config import settings
 from app.db import (
     JiraSession,
     User,
+    close_jira_session,
     create_dialog_entry,
     create_jira_session,
     get_active_jira_session,
     log_request,
     set_jira_last_comment,
+    set_rating,
 )
 
 logger = logging.getLogger(__name__)
@@ -279,8 +285,9 @@ async def start(
         return
     await state.clear()
     await message.answer(
-        "Здравствуйте! Я бот поддержки «БАРС-Офис». Задайте вопрос текстом или пришлите\n"
-        "скриншот — постараюсь ответить.",
+        "Привет! Меня зовут БАРС хелпер, виртуальный помощник. Я изучил всю документацию\n"
+        "и готов ответить на ваши вопросы. Если понадобится живой человек, просто скажите\n"
+        "«оператор». Чем могу помочь?",
         reply_markup=user_main_menu(),
     )
 
@@ -314,12 +321,52 @@ async def exit_dialog(
     active = await _get_active_session(session, user)
     if active is not None:
         await message.answer(
-            "Обращение ещё открыто в поддержке. Диалог завершится, когда оператор закроет задачу.",
-            reply_markup=user_dialog_menu(),
+            "Обращение в поддержке ещё открыто. Закрыть его?",
+            reply_markup=close_ticket_confirm_keyboard(),
         )
         return
     await state.clear()
     await message.answer("Вы вышли из диалога.", reply_markup=user_main_menu())
+
+
+@router.callback_query(F.data.startswith("close_ticket:"))
+async def close_ticket(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    user: User,
+    redis_context: RedisContextService,
+    bot: Bot,
+    jira_client: JiraClient | None = None,
+) -> None:
+    """Пользователь сам закрывает своё обращение в поддержке."""
+    if (callback.data or "").removeprefix("close_ticket:") == "cancel":
+        await _remove_operator_button(callback)
+        await callback.answer("Закрытие отменено")
+        return
+
+    active = await _get_active_session(session, user)
+    if active is None:
+        await _remove_operator_button(callback)
+        await callback.answer("Обращение уже закрыто.", show_alert=True)
+        return
+
+    if jira_client is not None and hasattr(jira_client, "resolve_issue"):
+        try:
+            await jira_client.resolve_issue(active.issue_key)
+        except Exception:
+            logger.exception("Не удалось перевести задачу Jira %s в завершённый статус", active.issue_key)
+
+    await close_jira_session(session, active)
+    await _remove_wait_message(bot, user, redis_context)
+    await state.clear()
+    await _remove_operator_button(callback)
+    if callback.message is not None:
+        await callback.message.answer(
+            "Обращение закрыто. Если понадобится помощь — задайте новый вопрос.",
+            reply_markup=user_main_menu(),
+        )
+    await callback.answer("Обращение закрыто")
 
 
 @router.message(UserStates.in_dialog)
@@ -413,7 +460,11 @@ async def handle_question(
         await _save_metrics(user, stored_question, result, response_ms, sent.message_id)
         return
 
-    sent = await _send_long(message, result.answer)  # id сообщения — по нему привяжется 👍/👎
+    sent = await _send_long(  # id сообщения — по нему привяжется 👍/👎
+        message,
+        result.answer,
+        reply_markup=answer_rating_keyboard(),
+    )
     await _save_metrics(user, stored_question, result, response_ms, sent.message_id)
     if result.images:
         await _send_kb_images(message, result.images)
@@ -510,6 +561,23 @@ async def call_operator(
         )
         await redis_context.set_wait_message(user.telegram_id, sent.message_id)
     await callback.answer("Запрос в обработке")
+
+
+@router.callback_query(F.data.startswith("rate:"))
+async def rate_answer(callback: CallbackQuery, user: User) -> None:
+    """Оценка ответа ИИ: 👍 (1) / 👎 (-1) привязывается к строке метрики."""
+    if callback.message is None:
+        await callback.answer()
+        return
+
+    value = 1 if callback.data == "rate:up" else -1
+    saved = await set_rating(user.telegram_id, callback.message.message_id, value)
+    if not saved:
+        await callback.answer("Не удалось сохранить оценку.", show_alert=True)
+        return
+
+    await _remove_operator_button(callback)  # убираем кнопки после оценки
+    await callback.answer("Спасибо за оценку!" if value == 1 else "Спасибо, учтём!")
 
 
 @router.message()

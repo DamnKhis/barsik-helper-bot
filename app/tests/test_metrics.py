@@ -90,6 +90,7 @@ def test_collect_stats_aggregates_dashboard_contract(session_maker) -> None:
         "median_response_ms": 800,
     }
     assert stats["outcomes"] == {"answered": 1, "not_found": 1, "escalated": 1}
+    assert stats["ratings"] == {"up": 0, "down": 0, "rated": 0, "satisfaction": None}
     assert len(stats["hourly"]) == 24
     assert sum(point["c"] for point in stats["hourly"]) == 3
     assert stats["top_topics"] == [{"topic": "Командировки.pdf", "count": 1}]
@@ -134,6 +135,29 @@ def test_metric_outcome_mapping() -> None:
     assert _metric_outcome(AIResult(answer="ok", flag="ANSWER")) == "answered"
     assert _metric_outcome(AIResult(answer="уточните", flag="CLARIFY")) == "not_found"
     assert _metric_outcome(AIResult(answer="оператор", flag="ESCALATE", need_operator=True)) == "escalated"
+
+
+def test_set_rating_updates_matching_row(session_maker) -> None:
+    _add_request("42", "Как оформить командировку?", 0.9, "answered", 900, "Док.pdf", 777)
+
+    assert asyncio.run(db_module.set_rating("42", 777, 1)) is True
+    assert _requests()[0].rating == 1
+
+    # Другого сообщения у пользователя нет — оценка не садится.
+    assert asyncio.run(db_module.set_rating("42", 999, -1)) is False
+
+
+def test_collect_stats_counts_ratings(session_maker) -> None:
+    _add_request("1", "Первый", 0.9, "answered", 900, "Док.pdf", 10)
+    _add_request("1", "Второй", 0.9, "answered", 900, "Док.pdf", 11)
+    _add_request("2", "Третий", 0.9, "answered", 900, "Док.pdf", 12)
+    asyncio.run(db_module.set_rating("1", 10, 1))
+    asyncio.run(db_module.set_rating("1", 11, -1))
+    asyncio.run(db_module.set_rating("2", 12, 1))
+
+    stats = asyncio.run(dashboard_module._collect_stats())
+
+    assert stats["ratings"] == {"up": 2, "down": 1, "rated": 3, "satisfaction": 66.7}
 
 
 def test_bot_handler_writes_metrics_after_answer(session_maker) -> None:
@@ -220,6 +244,7 @@ def test_stats_endpoint_returns_dashboard_payload(session_maker) -> None:
         "kpis",
         "hourly",
         "outcomes",
+        "ratings",
         "top_topics",
         "blind_spots",
     }

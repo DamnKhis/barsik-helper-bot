@@ -316,6 +316,43 @@ def test_call_operator_posts_ai_history_to_jira(monkeypatch) -> None:
     watermark.assert_awaited_once_with(session, row, 555)
 
 
+def test_resolve_issue_applies_done_transition() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/rest/api/2/issue/SUP-7/transitions":
+            if request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json={
+                        "transitions": [
+                            {
+                                "id": "21",
+                                "to": {"name": "В работе", "statusCategory": {"key": "indeterminate"}},
+                            },
+                            {
+                                "id": "31",
+                                "to": {"name": "Готово", "statusCategory": {"key": "done"}},
+                            },
+                        ]
+                    },
+                )
+            return httpx.Response(204)
+        return httpx.Response(404)
+
+    client = JiraClient(
+        base_url="https://jira.example.com",
+        email="bot@example.com",
+        token="secret",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert asyncio.run(client.resolve_issue("SUP-7")) is True
+    post = next(req for req in seen if req.method == "POST")
+    assert json.loads(post.content) == {"transition": {"id": "31"}}
+
+
 def test_add_attachment_posts_multipart() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/rest/api/2/issue/SUP-3/attachments":

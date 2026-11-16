@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     bot_token: str = ""
     bot_username: str = ""
     admin_ids: str = ""
-    # Кого показывать пользователю как оператора поддержки
-    support_handle: str = "@DanKhis"
+    # Кого показывать пользователю как оператора поддержки (пусто — без упоминаний)
+    support_handle: str = ""
     # Дополнительные слова вызова оператора (через запятую); пусто = встроенный список
     operator_keywords: str = ""
 

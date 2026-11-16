@@ -1,11 +1,11 @@
 {
-  "build_id": "20261116T042834_cf3fc834",
-  "collection": "bars_kb_20261116T042834_cf3fc834",
+  "build_id": "20261116T044321_531ff3ca",
+  "collection": "bars_kb_20261116T044321_531ff3ca",
   "alias": "bars_kb_current",
-  "created_at": "2026-11-16T04:29:20.694369+00:00",
+  "created_at": "2026-11-16T04:44:31.194888+00:00",
   "pipeline_version": "0.1.0",
   "source": {
-    "digest": "cf3fc834b1b1f226ac1fc06b4ed9403818a71c1c910d97a5ee30e22ab2ca7d03",
+    "digest": "531ff3ca16fc966b7818b1b98b155781c39051c057984c4f5c95c5d934d7fdaa",
     "files": [
       {
         "path": "doc/source/БП Командировка.pdf",
@@ -54,6 +54,12 @@
         "kind": "support",
         "sha256": "a79de7a2167827d22c1966f269963f7d736c6f14298450839fc8d54af0ea982f",
         "size": 1638
+      },
+      {
+        "path": "support/support_answers/KAN-27.md",
+        "kind": "support",
+        "sha256": "8e26c1b80c80924fd7c567a100d712398a35d03dee520b0bcf20a390e0473047",
+        "size": 1810
       }
     ]
   },
@@ -71,11 +77,12 @@
     },
     {
       "kind": "support",
-      "digest": "9ad94083f76c936af3a9047fa9e63e4f99dfec2e3aacfa69dae7d0e130007607",
+      "digest": "635be3133beb967463bafeeae4c14dda0029788735c93172f0ec1159b49f4ea3",
       "files": [
         "support/support_answers/KAN-21.md",
         "support/support_answers/KAN-23.md",
-        "support/support_answers/KAN-26.md"
+        "support/support_answers/KAN-26.md",
+        "support/support_answers/KAN-27.md"
       ]
     }
   ],
@@ -92,7 +99,7 @@
   },
   "sparse": {
     "type": "bm25",
-    "vocab_size": 3427,
+    "vocab_size": 3444,
     "modifier": "idf"
   },
   "documents": [
@@ -173,31 +180,44 @@
       "chunk_count": 1,
       "kind": "support",
       "github_url": ""
+    },
+    {
+      "doc_id": "kan-27",
+      "title": "KAN-27: полезный ответ поддержки",
+      "source_path": "docs/support_answers/KAN-27.md",
+      "source_type": "markdown",
+      "version": "8e26c1b80c80924f",
+      "sha256": "8e26c1b80c80924fd7c567a100d712398a35d03dee520b0bcf20a390e0473047",
+      "page_count": 0,
+      "section_count": 1,
+      "chunk_count": 1,
+      "kind": "support",
+      "github_url": ""
     }
   ],
   "counts": {
-    "documents": 6,
-    "chunks": 133,
-    "support_documents": 1,
+    "documents": 7,
+    "chunks": 134,
+    "support_documents": 2,
     "images": 38,
     "faq": 13,
-    "support": 1,
+    "support": 2,
     "tables": 4,
     "diagrams": 2,
     "screenshots": 36
   },
   "qdrant": {
-    "count": 133,
-    "snapshot": "bars_kb_20261116T042834_cf3fc834-7408061863732421-2026-11-16-04-29-17-1.snapshot",
+    "count": 134,
+    "snapshot": "bars_kb_20261116T044321_531ff3ca-7408061863732421-2026-11-16-04-44-29-2.snapshot",
     "mode": "server"
   },
   "export": {
-    "path": "dist/20261116T042834_cf3fc834",
-    "chunks": 133,
+    "path": "dist/20261116T044321_531ff3ca",
+    "chunks": 134,
     "images": 38,
-    "latest": "20261116T042834_cf3fc834",
+    "latest": "20261116T044321_531ff3ca",
     "pruned": [
-      "20261116T005001_cc4db7fc"
+      "20261116T041811_cc4db7fc"
     ]
   }
 }

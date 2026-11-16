@@ -114,6 +114,11 @@ async def _collect_stats(period: str = "today") -> dict[str, Any]:
     total = len(rows)
     answered = sum(1 for row in rows if row.outcome == "answered")
 
+    ratings = [int(row.rating) for row in rows if row.rating in (1, -1)]
+    rated = len(ratings)
+    thumbs_up = sum(1 for value in ratings if value == 1)
+    thumbs_down = sum(1 for value in ratings if value == -1)
+
     response_times = [int(row.response_ms or 0) for row in rows]
     avg_confidence = (
         sum(float(row.confidence or 0.0) for row in rows) / total if total else 0.0
@@ -153,6 +158,12 @@ async def _collect_stats(period: str = "today") -> dict[str, Any]:
             "answered": answered,
             "not_found": sum(1 for row in rows if row.outcome == "not_found"),
             "escalated": sum(1 for row in rows if row.outcome == "escalated"),
+        },
+        "ratings": {
+            "up": thumbs_up,
+            "down": thumbs_down,
+            "rated": rated,
+            "satisfaction": round(100 * thumbs_up / rated, 1) if rated else None,
         },
         "top_topics": [
             {"topic": topic, "count": count} for topic, count in topics.most_common(5)

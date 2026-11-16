@@ -9,6 +9,7 @@ from app.bot.services.jira import (
     JiraComment,
 )
 from app.bot.services.support_answers import (
+    contains_personal_data,
     is_useful_status,
     render_support_answer,
     safe_filename,
@@ -84,6 +85,39 @@ def test_render_support_answer_dialog_without_support_reply() -> None:
 
 def test_render_support_answer_none_without_any_content() -> None:
     assert render_support_answer("KAN-1", "", "", []) is None
+
+
+def test_contains_personal_data_patterns() -> None:
+    assert contains_personal_data("Добрый день, Иванов Андрей Владимирович")
+    assert contains_personal_data("Звоните +7 999 100 20 30")
+    assert contains_personal_data("Пишите на ivan@example.com")
+    assert contains_personal_data("Командировка №152")
+    assert not contains_personal_data("Нажмите кнопку «Сохранить»")
+    # Горячая линия 8-800 — не персональный номер и должна оставаться.
+    assert not contains_personal_data("Горячая линия 8 800 100 20 30")
+
+
+def test_render_support_answer_drops_pii_only_ticket() -> None:
+    # KAN-27: вопрос с номером записи + ответ-приветствие с ФИО → индексировать нечего.
+    comments = [
+        _comment(2, f"{BOT_USER_PREFIX}42]\nИван:\nКто согласующий по командировке №152?"),
+        _comment(3, "Добрый день, Иванов Андрей Владимирович"),
+    ]
+    assert render_support_answer("KAN-27", "", "", comments) is None
+
+
+def test_render_support_answer_drops_pii_pair_keeps_clean() -> None:
+    comments = [
+        _comment(2, f"{BOT_USER_PREFIX}42]\nИван:\nКак оформить пропуск?"),
+        _comment(3, "Нужен паспорт и заявка от руководителя."),
+        _comment(4, f"{BOT_USER_PREFIX}42]\nИван:\nКто согласующий по №152?"),
+        _comment(5, "Иванов Андрей Владимирович"),
+    ]
+    content = render_support_answer("KAN-1", "", "", comments)
+    assert content is not None
+    assert "Нужен паспорт и заявка от руководителя." in content
+    assert "Иванов Андрей Владимирович" not in content
+    assert "№152" not in content
 
 
 def test_save_support_answer_writes_and_is_idempotent(tmp_path, monkeypatch) -> None:

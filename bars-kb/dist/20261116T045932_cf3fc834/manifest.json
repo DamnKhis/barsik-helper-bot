@@ -1,11 +1,11 @@
 {
-  "build_id": "20261116T041811_cc4db7fc",
-  "collection": "bars_kb_20261116T041811_cc4db7fc",
+  "build_id": "20261116T045932_cf3fc834",
+  "collection": "bars_kb_20261116T045932_cf3fc834",
   "alias": "bars_kb_current",
-  "created_at": "2026-11-16T04:25:33.861550+00:00",
+  "created_at": "2026-11-16T05:00:32.015202+00:00",
   "pipeline_version": "0.1.0",
   "source": {
-    "digest": "cc4db7fcb5702ab41e0890c57a89a9af61708c39037b59b957b5a03bc4bb9d7d",
+    "digest": "cf3fc834b1b1f226ac1fc06b4ed9403818a71c1c910d97a5ee30e22ab2ca7d03",
     "files": [
       {
         "path": "doc/source/БП Командировка.pdf",
@@ -48,6 +48,12 @@
         "kind": "support",
         "sha256": "4c17a55c314eba168c46c8f62f97fb116e83b2cde1d7b0b590a25cdcd3b7c0fa",
         "size": 781
+      },
+      {
+        "path": "support/support_answers/KAN-26.md",
+        "kind": "support",
+        "sha256": "a79de7a2167827d22c1966f269963f7d736c6f14298450839fc8d54af0ea982f",
+        "size": 1638
       }
     ]
   },
@@ -65,10 +71,11 @@
     },
     {
       "kind": "support",
-      "digest": "d17d0f52728fcace1eab117c6461788d1e223f35574c9156a348684fcbd92109",
+      "digest": "9ad94083f76c936af3a9047fa9e63e4f99dfec2e3aacfa69dae7d0e130007607",
       "files": [
         "support/support_answers/KAN-21.md",
-        "support/support_answers/KAN-23.md"
+        "support/support_answers/KAN-23.md",
+        "support/support_answers/KAN-26.md"
       ]
     }
   ],
@@ -181,16 +188,16 @@
   },
   "qdrant": {
     "count": 133,
-    "snapshot": "bars_kb_20261116T041811_cc4db7fc-7408061863732421-2026-11-16-04-25-31-0.snapshot",
+    "snapshot": "bars_kb_20261116T045932_cf3fc834-7408061863732421-2026-11-16-05-00-29-3.snapshot",
     "mode": "server"
   },
   "export": {
-    "path": "dist/20261116T041811_cc4db7fc",
+    "path": "dist/20261116T045932_cf3fc834",
     "chunks": 133,
     "images": 38,
-    "latest": "20261116T041811_cc4db7fc",
+    "latest": "20261116T045932_cf3fc834",
     "pruned": [
-      "20261115T230543_1e01c5cb"
+      "20261116T042834_cf3fc834"
     ]
   }
 }

@@ -4,17 +4,17 @@
 
 | Параметр | Значение |
 |---|---|
-| build_id | `20261116T041811_cc4db7fc` |
-| коллекция | `bars_kb_20261116T041811_cc4db7fc` |
+| build_id | `20261116T045932_cf3fc834` |
+| коллекция | `bars_kb_20261116T045932_cf3fc834` |
 | alias | `bars_kb_current` |
 | предыдущая версия | `bars_kb_prev` |
-| source digest | `cc4db7fcb5702ab4` |
-| создан | 2026-11-16T04:25:33.857844+00:00 |
+| source digest | `cf3fc834b1b1f226` |
+| создан | 2026-11-16T05:00:32.012658+00:00 |
 | эмбеддинги | `qwen` / `qwen/qwen3-embedding-8b`, dim `1024` |
 | текст и JSON | `qwen/qwen3.8-flash` |
 | скриншоты и схемы | `qwen/qwen3.8-flash` |
 | sparse | BM25, IDF |
-| snapshot | `bars_kb_20261116T041811_cc4db7fc-7408061863732421-2026-11-16-04-25-31-0.snapshot` |
+| snapshot | `bars_kb_20261116T045932_cf3fc834-7408061863732421-2026-11-16-05-00-29-3.snapshot` |
 
 ## Состав
 
@@ -66,7 +66,7 @@ python examples/restore_from_export.py \
 ## Проверка целостности
 
 ```bash
-cd 20261116T041811_cc4db7fc && sha256sum -c checksums.sha256
+cd 20261116T045932_cf3fc834 && sha256sum -c checksums.sha256
 ```
 
 ## Поиск

@@ -157,6 +157,11 @@
         <div class="value" id="kpi-latency">—<span class="unit">с</span></div>
         <div class="note">медиана от вопроса до ответа</div>
       </section>
+      <section class="card kpi">
+        <h2>Оценка ответов</h2>
+        <div class="value"><span id="kpi-satisfaction">—</span><span class="unit">%</span></div>
+        <div class="note" id="kpi-satisfaction-note">👍/👎 от пользователей</div>
+      </section>
     </div>
 
     <!-- Запросы по часам / дням -->
@@ -210,6 +215,7 @@
               "avg_confidence": float(0-1), "median_response_ms": int},
      "hourly": [{"h": "00" | "15.11", "c": int}, ...],
      "outcomes": {"answered": int, "not_found": int, "escalated": int},
+     "ratings": {"up": int, "down": int, "rated": int, "satisfaction": float|null},
      "top_topics": [{"topic": str, "count": int}, ...],
      "blind_spots": [{"time": "ЧЧ:ММ", "question": str, "confidence": float}, ...]
    }
@@ -250,6 +256,8 @@ function setOffline() {
   document.getElementById("kpi-auto").textContent = "—";
   document.getElementById("kpi-conf").textContent = "—";
   document.getElementById("kpi-latency").innerHTML = '—<span class="unit">с</span>';
+  document.getElementById("kpi-satisfaction").textContent = "—";
+  document.getElementById("kpi-satisfaction-note").textContent = "👍/👎 от пользователей";
   document.getElementById("donut-total").textContent = "—";
   document.getElementById("topics").innerHTML = '<div class="empty">Нет данных: /stats недоступен.</div>';
   document.getElementById("blind").innerHTML = '<div class="empty">Нет данных: /stats недоступен.</div>';
@@ -259,12 +267,18 @@ function setOffline() {
   if (outcomesChart) { outcomesChart.data.datasets[0].data = [0, 0, 0]; outcomesChart.update(); }
 }
 
-function renderKpis(k) {
+function renderKpis(k, ratings) {
   document.getElementById("kpi-requests").textContent = k.requests;
   document.getElementById("kpi-auto").textContent = Math.round(k.auto_rate);
   document.getElementById("kpi-conf").textContent = (k.avg_confidence ?? 0).toFixed(2).replace(".", ",");
   document.getElementById("kpi-latency").innerHTML =
     (k.median_response_ms / 1000).toFixed(1).replace(".", ",") + '<span class="unit">с</span>';
+  const r = ratings || {};
+  document.getElementById("kpi-satisfaction").textContent =
+    r.satisfaction == null ? "—" : Math.round(r.satisfaction);
+  document.getElementById("kpi-satisfaction-note").textContent = r.rated
+    ? `👍 ${r.up} · 👎 ${r.down}`
+    : "👍/👎 от пользователей";
 }
 
 function renderHourly(hourly, granularity) {
@@ -368,7 +382,7 @@ async function refresh() {
     ? "данные по дням за выбранный период"
     : "данные за последние 24 часа";
 
-  renderKpis(data.kpis);
+  renderKpis(data.kpis, data.ratings);
   renderHourly(data.hourly, data.granularity);
   renderOutcomes(data.outcomes);
   renderTopics(data.top_topics);

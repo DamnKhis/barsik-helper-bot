@@ -70,7 +70,9 @@ async def handle_pdf_deep_link(message: Message, command: CommandObject) -> None
     args = (command.args or "").strip()
     if not args.startswith("src_"):
         await message.answer(
-            "Здравствуйте! Я бот поддержки «БАРС-Офис». Задайте вопрос — постараюсь ответить."
+            "Привет! Меня зовут БАРС хелпер, виртуальный помощник. Я изучил всю документацию\n"
+            "и готов ответить на ваши вопросы. Если понадобится живой человек, просто скажите\n"
+            "«оператор». Чем могу помочь?"
         )
         return
 

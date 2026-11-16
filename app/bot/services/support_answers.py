@@ -27,6 +27,25 @@ LEGACY_IMAGE_NOTE_RE = re.compile(
     r"📎\s*Скриншот от пользователя:\s*([^\s(]+)(?:\s*\([^)]*\))?"
 )
 
+# Персональные данные, которые нельзя класть в общую базу знаний: иначе чужое
+# ФИО, телефон или номер конкретной записи утекут другому пользователю. Ответ
+# поддержки с таким содержимым в тикет для БЗ не попадает (см. KAN-27: «Добрый
+# день, Иванов Андрей Владимирович» — это ответ про одного человека).
+PII_PATTERNS = (
+    re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+", re.IGNORECASE),  # e-mail
+    re.compile(  # мобильный телефон (+7/8 9xx), не путать с 8-800
+        r"(?<!\d)(?:\+7|8)[\s\-()]*9\d{2}[\s\-()]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}(?!\d)"
+    ),
+    re.compile(r"[А-ЯЁ][а-яё]+(?:ович|евич|ьич|овна|евна|ична|инична)\b"),  # отчество → ФИО
+    re.compile(r"№\s*\d+"),  # номер конкретной записи (командировки, заявки)
+)
+
+
+def contains_personal_data(text: str) -> bool:
+    """True, если в тексте есть ПДн (ФИО/телефон/e-mail/номер записи) для БЗ."""
+    return any(pattern.search(text or "") for pattern in PII_PATTERNS)
+
+
 
 def is_useful_status(status_name: str) -> bool:
     normalized = status_name.strip().lower()
@@ -50,7 +69,10 @@ def _extract_pairs(comments: list[JiraComment]) -> list[tuple[str, str]]:
 
     def flush() -> None:
         if question is not None and answers:
-            pairs.append((question, "\n\n".join(answers)))
+            answer = "\n\n".join(answers)
+            if contains_personal_data(question) or contains_personal_data(answer):
+                return  # персональные данные не должны попасть в БЗ
+            pairs.append((question, answer))
 
     for comment in comments:
         body = comment.body.strip()
@@ -91,7 +113,9 @@ def _dialog_lines(comments: list[JiraComment]) -> list[tuple[str, str]]:
             continue
         else:
             lines.append(("Поддержка", body))
-    return lines
+    # Реплики с ПДн (ФИО/телефон/номер записи) выбрасываем: без них тикет с
+    # одним лишь приветствием вида «Добрый день, <ФИО>» в БЗ не попадёт.
+    return [(role, text) for role, text in lines if not contains_personal_data(text)]
 
 
 def _link_attachments(text: str, attachments: dict[str, tuple[str, bool]]) -> str:
