@@ -1,5 +1,5 @@
 {
-  "collection": "bars_kb_20261114T205237_a5023733",
+  "collection": "bars_kb_20261116T005001_cc4db7fc",
   "alias": "bars_kb_current",
   "vectors": {
     "dense": {
@@ -24,7 +24,8 @@
     "doc_id",
     "chunk_type",
     "version",
-    "tags"
+    "tags",
+    "doc_kind"
   ],
   "snapshot": null
 }
