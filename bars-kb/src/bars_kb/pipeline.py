@@ -123,6 +123,39 @@ def source_fingerprint(files: list[Path], root: Path | None = None) -> tuple[str
     return digest.hexdigest(), records
 
 
+def _support_golden(chunks: list[Chunk]) -> list[dict]:
+    """Контрольные вопросы из обращений: проверка, что тикет вообще ищется.
+
+    Вопрос берём из самого чанка (``raw_text`` начинается с «Вопрос: …»), поэтому
+    eval ловит регрессии: тикет пропал из сборки, сменился тип чанка, сломался
+    раздел. Это не замер качества формулировок, а сторож целостности.
+    """
+    items: list[dict] = []
+    for chunk in chunks:
+        if chunk.chunk_type != "support":
+            continue
+        question = ""
+        for line in chunk.raw_text.splitlines():
+            if line.startswith("Вопрос:"):
+                question = line[len("Вопрос:") :].strip()
+                break
+        if not question:
+            continue
+        section = chunk.section_path[-1] if chunk.section_path else ""
+        items.append(
+            {
+                "id": f"{chunk.doc_id}#{section or chunk.chunk_id[:8]}",
+                "type": "support",
+                "question": question,
+                "expected_doc_id": chunk.doc_id,
+                "expected_section_contains": [section] if section else [],
+                "expected_chunk_type": "support",
+            }
+        )
+    items.sort(key=lambda item: item["id"])
+    return items
+
+
 def _group_sources(records: list[dict]) -> list[dict]:
     """Сводка по источникам для манифеста: сколько файлов в каждой папке."""
     grouped: dict[str, dict] = {}
@@ -258,6 +291,16 @@ def ingest(
     finally:
         store.close()
     write_json(settings.data_dir / "sparse_vocab.json", vocab)
+    support_golden = _support_golden(all_chunks)
+    golden_path = settings.data_dir / "support_golden.jsonl"
+    if support_golden:
+        golden_path.write_text(
+            "\n".join(json.dumps(item, ensure_ascii=False) for item in support_golden) + "\n",
+            encoding="utf-8",
+        )
+        logger.info("support golden set: %d вопросов из обращений", len(support_golden))
+    elif golden_path.exists():
+        golden_path.unlink()  # обращений больше нет — старые вопросы неактуальны
     exported = (
         export_build(
             settings,
@@ -300,6 +343,7 @@ def ingest(
             "support_documents": sum(1 for record in document_records if record.get("kind") == "support"),
             "images": sum(1 for c in all_chunks if c.image_path),
             "faq": sum(1 for c in all_chunks if c.chunk_type == "faq"),
+            "support": sum(1 for c in all_chunks if c.chunk_type == "support"),
             "tables": sum(1 for c in all_chunks if c.chunk_type == "table"),
             "diagrams": sum(1 for c in all_chunks if c.chunk_type == "diagram"),
             "screenshots": sum(1 for c in all_chunks if c.chunk_type == "screenshot"),
@@ -411,7 +455,7 @@ def export_build(
     write_json(out / "collection_config.json", collection_config)
     write_json(out / "manifest.json", {"build_id": build_id, "collection": collection, "documents": document_records})
 
-    for name in ("golden_retrieval.jsonl", "sparse_vocab.json"):
+    for name in ("golden_retrieval.jsonl", "support_golden.jsonl", "sparse_vocab.json"):
         source = settings.data_dir / name
         if source.exists():
             shutil.copy2(source, out / name)
@@ -513,6 +557,7 @@ def _write_package_readme(
 | `build_info.json` | краткая информация о сборке |
 | `sparse_vocab.json` | словарь BM25; обязателен для sparse-поиска |
 | `golden_retrieval.jsonl` | контрольные вопросы для eval |
+| `support_golden.jsonl` | контрольные вопросы из решённых обращений |
 | `eval_report.json` | метрики hit@1/3/5, MRR и примеры выдачи (после `bars-kb eval`) |
 | `checksums.sha256` | SHA256 всех файлов пакета |
 
@@ -522,7 +567,8 @@ def _write_package_readme(
   **{sum(1 for record in document_records if record.get("kind") == "support")}**)
 - чанков: **{len(chunks)}**
 - text: {counts.get("text", 0)}, faq: {counts.get("faq", 0)}, table: {counts.get("table", 0)},
-  screenshot: {counts.get("screenshot", 0)}, diagram: {counts.get("diagram", 0)}
+  screenshot: {counts.get("screenshot", 0)}, diagram: {counts.get("diagram", 0)},
+  support: {counts.get("support", 0)} (пары «вопрос/ответ» из решённых обращений)
 
 Подробная схема payload — в `HANDOFF.md` проекта. Кратко: поиск идёт по `enriched_text`,
 ответ и цитата — по `raw_text`; `parent_text` даёт контекст раздела; `section_path` и

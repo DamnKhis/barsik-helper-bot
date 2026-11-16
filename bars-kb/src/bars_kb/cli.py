@@ -340,6 +340,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "eval":
         try:
             report = run_eval(settings, golden=args.golden, top_k=args.top_k)
+            support = (report.get("by_type") or {}).get("support")
+            if support:
+                logger.info(
+                    "support eval: questions=%s hit@1=%.4f hit@3=%.4f",
+                    support["questions"],
+                    support["hit@1"],
+                    support["hit@3"],
+                )
         except RuntimeError as exc:
             logger.error("%s", exc)
             return 1

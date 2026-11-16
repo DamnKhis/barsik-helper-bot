@@ -242,6 +242,94 @@ class SupportSourceTest(unittest.TestCase):
 
     # --- сборка -----------------------------------------------------------
 
+    def test_pair_becomes_single_support_chunk_that_is_searched_by_question(self) -> None:
+        """Пара «вопрос+ответ» — один чанк: ищем по формулировке вопроса, отвечаем ответом."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            self._sources(root)
+
+            manifest = ingest(settings, export=True, keep=2)
+            build = settings.dist_dir / manifest["build_id"]
+            with gzip.open(build / "chunks.jsonl.gz", "rt", encoding="utf-8") as handle:
+                rows = [json.loads(line) for line in handle]
+
+            pairs = [row for row in rows if row["payload"].get("chunk_type") == "support"]
+            self.assertEqual(len(pairs), 1)  # вопрос и ответ больше не расходятся
+            payload = pairs[0]["payload"]
+
+            self.assertEqual(payload["doc_kind"], "support")
+            self.assertEqual(payload["section_path"][-1], "Вопрос 1")
+            self.assertIn("Вопрос: Как оформить пропуск", payload["raw_text"])
+            self.assertIn("Ответ: Заявку оформляет офис-менеджер", payload["raw_text"])
+            self.assertIn("Вопрос пользователя: Как оформить пропуск", payload["enriched_text"])
+            self.assertIn("Похожие формулировки", payload["enriched_text"])
+            self.assertIn("Кратко", payload["enriched_text"])
+            self.assertNotIn("История диалога", payload["enriched_text"])
+            self.assertEqual(manifest["counts"]["support"], 1)
+
+            # картинка вопроса по-прежнему отдельный чанк-скриншот с тем же разделом
+            pictures = [row for row in rows if row["payload"].get("image_path")]
+            self.assertTrue(pictures)
+            self.assertEqual(pictures[0]["payload"]["doc_kind"], "support")
+            self.assertEqual(pictures[0]["payload"]["section_path"][-1], "Вопрос 1")
+
+    def test_support_golden_generated_and_evaluated(self) -> None:
+        """Сборкой генерируется golden-набор по обращениям и eval его проверяет."""
+        from bars_kb.eval.runner import run_eval
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            self._sources(root)
+
+            manifest = ingest(settings, export=True, keep=2)
+
+            golden = (settings.data_dir / "support_golden.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(golden), 1)
+            entry = json.loads(golden[0])
+            self.assertEqual(entry["type"], "support")
+            self.assertEqual(entry["expected_doc_id"], "kan-21")
+            self.assertEqual(entry["expected_chunk_type"], "support")
+            self.assertTrue(entry["question"].startswith("Как оформить пропуск"))
+            # файл уехал в пакет
+            build = settings.dist_dir / manifest["build_id"]
+            self.assertTrue((build / "support_golden.jsonl").is_file())
+
+            report = run_eval(settings, top_k=5)
+            self.assertEqual(report["by_type"]["support"]["questions"], 1)
+            self.assertEqual(report["by_type"]["support"]["hit@1"], 1.0)
+
+    def test_paraphrases_from_llm_reach_the_index(self) -> None:
+        """Перефразировки от LLM попадают в enriched_text (по нему и идёт поиск)."""
+        from bars_kb.chunker import Chunker
+
+        class FakeLLM:
+            def complete_json(self, system: str, user: str) -> dict:
+                return {
+                    "summary": "Нужно оформить заявку и дождаться проверки.",
+                    "questions": ["как получить пропуск", "оформление пропуска в БО", "кому отдать заявку"],
+                    "answer_digest": "Заявку оформляет офис-менеджер.",
+                    "entities": ["Служба безопасности"],
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = replace(self._settings(root), llm_provider="qwen", qwen_api_key="test-key")
+            _, support = self._sources(root)
+            document = parse_document(
+                support / "KAN-21.md", settings.images_dir, "v1", kind="support", support_mode="dialogs"
+            )
+
+            chunks = Chunker(settings, FakeLLM(), None).document_chunks(document)
+            pairs = [chunk for chunk in chunks if chunk.chunk_type == "support" and "Вопрос:" in chunk.raw_text]
+
+            self.assertTrue(pairs)
+            enriched = pairs[0].enriched_text
+            self.assertIn("как получить пропуск", enriched)
+            self.assertIn("кому отдать заявку", enriched)
+            self.assertIn("Заявку оформляет офис-менеджер.", enriched)
+
     def test_ingest_marks_support_chunks_and_exports_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -264,14 +352,11 @@ class SupportSourceTest(unittest.TestCase):
 
             support_rows = [row for row in rows if row["payload"].get("doc_kind") == "support"]
             self.assertTrue(support_rows)
-            answer_rows = [
-                row
-                for row in support_rows
-                if "Ответ поддержки 1" in (row["payload"].get("section_path") or [])
-            ]
-            self.assertTrue(answer_rows)
-            self.assertTrue(answer_rows[0]["payload"]["doc_title"].startswith("KAN-21"))
-            self.assertTrue(answer_rows[0]["payload"]["source_path"].endswith("support_answers/KAN-21.md"))
+            pair_rows = [row for row in support_rows if row["payload"].get("chunk_type") == "support"]
+            self.assertTrue(pair_rows)
+            self.assertTrue(pair_rows[0]["payload"]["doc_title"].startswith("KAN-21"))
+            self.assertTrue(pair_rows[0]["payload"]["source_path"].endswith("support_answers/KAN-21.md"))
+            self.assertIn("Ответ: Заявку оформляет офис-менеджер", pair_rows[0]["payload"]["raw_text"])
 
             # шумный диалог с ИИ и персональные данные в индекс не попали
             joined = " ".join(row["payload"].get("raw_text", "") for row in support_rows)
