@@ -20,8 +20,10 @@ from qdrant_client.models import Distance, PointStruct, VectorParams
 
 load_dotenv()
 
-# Фикс SSL для urllib.request внутри bars-kb/examples/kb_client.py на macOS Python 3.14
+# Фикс SSL-путей (перетираем macOS-пути из .env внутри Linux-контейнера)
 os.environ["SSL_CERT_FILE"] = certifi.where()
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+os.environ["CURL_CA_BUNDLE"] = certifi.where()
 ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 logger = logging.getLogger(__name__)
@@ -31,11 +33,9 @@ EXAMPLES_DIR = PROJECT_ROOT / "bars-kb" / "examples"
 if str(EXAMPLES_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLES_DIR))
 
-from export_paths import resolve_base_dir  # noqa: E402  (bars-kb/examples is added above)
+from export_paths import resolve_base_dir  # noqa: E402
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-# bars-kb/dist is a base directory, not a build: kb_client follows dist/LATEST,
-# so rebuilds and rollbacks are picked up without editing this file.
 KB_EXPORT_DIR = resolve_base_dir(
     os.getenv("KB_EXPORT_DIR") or (PROJECT_ROOT / "bars-kb" / "dist"),
     root=PROJECT_ROOT,
@@ -95,30 +95,34 @@ SYSTEM_PROMPT = (
     "[FLAG: OFF_TOPIC] — вопрос бытовой (погода, еда, игры, шутки, отвлечённые темы) и не связан с работой, поддержкой или системой «БАРС-Офис».\n\n"
     "Со второй строки пиши сам текст ответа для пользователя (без упоминания технических тегов).\n\n"
     "Правила составления ответа:\n"
-    "1. Используй только факты из блока <context>. Ничего не выдумывай от себя.\n"
-    "2. Обязательно сохраняй все точные цифры, проценты (>= 60%, 30%), операторы (!>200, <200), номера телефонов (+79991002030), часы работы и пошаговые списки.\n"
-    "3. Отвечай кратко, структурированно и по делу на русском языке, без лишних приветствий.\n"
-    "4. ЛИМИТ TELEGRAM: длина твоего ответа должна быть строго не более 3500 символов (с запасом под технический лимит Telegram 4096 символов и строку источника).\n"
-    "5. Если выбран [FLAG: OFF_TOPIC] — вежливо попроси ввести запрос по теме системы «БАРС-Офис».\n"
-    "6. Если выбран [FLAG: CLARIFY] — задай 1–2 уточняющих вопроса по теме обращения.\n"
-    "7. Если выбран [FLAG: ESCALATE] — вежливо сообщи, что переключаешь диалог на специалиста поддержки (а если в контексте есть смежная инструкция, кратко приведи её перед переводом)."
+    "1. Используй только факты из блока <context>. Ничего не выдумывай от себя. Запрещено копировать сырые технические дампы вроде «Текст на изображении:» или «Вопросы:» — формулируй связный, понятный ответ.\n"
+    "2. Если вопрос состоит из нескольких частей — обязательно ответь по пунктам на каждую часть вопроса, используя все фрагменты из <context>.\n"
+    "3. Обязательно сохраняй все точные цифры, проценты (>= 60%, 30%), операторы (!>200, <200), номера телефонов (+79991002030), часы работы и пошаговые списки.\n"
+    "4. Отвечай кратко, структурированно и по делу на русском языке, без лишних приветствий.\n"
+    "5. ЛИМИТ TELEGRAM: длина твоего ответа должна быть строго не более 3500 символов.\n"
+    "6. Если выбран [FLAG: OFF_TOPIC] — вежливо попроси ввести запрос по теме системы «БАРС-Офис».\n"
+    "7. Если выбран [FLAG: CLARIFY] — задай 1–2 уточняющих вопроса по теме обращения.\n"
+    "8. Если выбран [FLAG: ESCALATE] — вежливо сообщи, что переключаешь диалог на специалиста поддержки (а если в контексте есть смежная инструкция, кратко приведи её перед переводом).\n"
+    "9. Если в вопросе присутствует описание со скриншота пользователя, считай эту ситуацию на экране достоверной и объясни её причину или решение строго по фактам из <context>."
 )
 
 FLAG_RE = re.compile(r"^\s*\[FLAG:\s*(ANSWER|CLARIFY|ESCALATE|OFF_TOPIC)\s*\]\s*\n?", re.I)
+THINK_RE = re.compile(r"<think>.*?</think>", re.S | re.I)
 
 
 def parse_llm_output(raw_output: str) -> tuple[str, str]:
-    """Отсекает технический тег [FLAG: ...] из первой строки и ограничивает длину под Telegram."""
-    match = FLAG_RE.match(raw_output)
+    """Очищает ответ от <think>, отсекает тег [FLAG: ...] и ограничивает длину под Telegram."""
+    cleaned = THINK_RE.sub("", raw_output).strip()
+    match = FLAG_RE.match(cleaned)
     if match:
         flag = match.group(1).upper()
-        clean_text = raw_output[match.end():].strip()
+        clean_text = cleaned[match.end():].strip()
     else:
         flag = "ANSWER"
-        clean_text = raw_output.strip()
+        clean_text = cleaned
 
-    if len(clean_text) > 3800:
-        clean_text = clean_text[:3800].rsplit(" ", 1)[0] + "…"
+    if len(clean_text) > 3500:
+        clean_text = clean_text[:3500].rsplit(" ", 1)[0] + "…"
     return flag, clean_text
 
 
@@ -127,7 +131,7 @@ WORK_ANCHORS = [
     "Как оформить документ, заявку, отчет, командировку, бюджет, сделку или запись в реестре",
     "Проблема с входом в личный кабинет, авторизацией, правами доступа, сертификатом КриптоПро или 2FA",
     "Где найти кнопку, таблицу, фильтр, столбец, статус или раздел в рабочем интерфейсе",
-    "Кто согласовывает бизнес-процесс, кому звонить в поддержку или бухгалтерию по рабочему вопросу"
+    "Кто согласовывает бизнес-процесс, кому звонить в поддержку или бухгалтерию по рабочему вопросу",
 ]
 
 OFFTOPIC_ANCHORS = [
@@ -135,7 +139,7 @@ OFFTOPIC_ANCHORS = [
     "Рецепты еды, кулинария, рестораны, продукты, покупки и бытовые домашние дела",
     "Спорт, футбол, видеоигры, фильмы, музыка, знаменитости и развлечения",
     "Анекдоты, стихи, философские вопросы, политика, история и школьные задачки",
-    "Привет, как дела, кто ты такой, расскажи шутку или поговори со мной на свободную тему"
+    "Привет, как дела, кто ты такой, расскажи шутку или поговори со мной на свободную тему",
 ]
 
 OPERATOR_ANCHORS = [
@@ -147,7 +151,7 @@ OPERATOR_ANCHORS = [
 ]
 
 OPERATOR_RE = re.compile(
-    r"(оператор|живо(го|й|му)\s+(человек|специалист|сотрудник)|"
+    r"(\bоператор(?:а|у|ом|е)?\b|живо(го|й|му)\s+(человек|специалист|сотрудник)|"
     r"(позов|соедин|переключ|перевед|свяж|нужен|хочу)[а-яё\s]{0,20}"
     r"(человек|специалист|сотрудник|поддержк|саппорт|консультант|диспетчер))",
     re.I,
@@ -156,7 +160,7 @@ OPERATOR_RE = re.compile(
 DOMAIN_SUBSTRINGS = (
     "барс", "фильтр", "командиров", "пресейл", "сделк", "реестр",
     "мебел", "техник", "согласов", "офис-менеджер", "бюджет", "календар",
-    "кнопк", "ссылк", "bars.group", "криптопро", "сертификат"
+    "кнопк", "ссылк", "bars.group", "криптопро", "сертификат",
 )
 DOMAIN_EXACT_TOKENS = {"бо", "бп", "2fa", "id"}
 
@@ -166,7 +170,7 @@ STOP_WORDS = {
     "делать", "возникает", "ошибка", "барс", "офис", "офисе", "бо", "нем",
     "ней", "него", "какой", "какие", "где", "кто", "смогу", "могу", "могут",
     "быть", "есть", "они", "опиши", "необходимо", "узнать", "подскажи",
-    "скажи", "сегодня"
+    "скажи", "сегодня",
 }
 
 TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.I)
@@ -176,7 +180,7 @@ TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.I)
 class RAGResponse:
     answer: str
     confidence: float
-    flag: str  # "ANSWER" (1.0-0.7), "CLARIFY" (0.7-0.4), "OFF_TOPIC" (<0.4 мимо контекста), "ESCALATE" (оператор)
+    flag: str
     need_operator: bool
     source: str | None = None
     images: list[str] = field(default_factory=list)
@@ -210,7 +214,6 @@ class Retriever:
         self._init_kb()
 
     def _init_kb(self) -> None:
-        """(Re)load the handoff package; safe to call before the build exists."""
         try:
             from kb_client import KB
 
@@ -225,7 +228,6 @@ class Retriever:
         except Exception as exc:
             self.kb = None
             message = str(exc)
-            # A build may appear later; log once per distinct failure.
             if message != self._kb_error:
                 logger.warning("KB недоступна (%s): %s", KB_EXPORT_DIR, message)
             self._kb_error = message
@@ -266,23 +268,97 @@ class Retriever:
         matched = sum(1 for t in content_tokens if t in self.kb.vocab)
         return matched / len(content_tokens)
 
-    @staticmethod
-    def _format_source(payload: dict) -> str:
-        doc_title = payload.get("doc_title") or payload.get("doc_name") or "Документация БАРС-Офис"
-        sec = payload.get("section_path", "")
+    DOC_CODES = {
+        "Реестр мебели": "mebel",
+        "reestr-mebeli": "mebel",
+        "БП Командировка": "bp",
+        "bp-komandirovka": "bp",
+        "Функциональные возможности": "func",
+        "Функциональные возможности работы с БАРС-Офисом": "func",
+        "funktsionalnye-vozmozhnosti": "func",
+        "Инструкция по привязке Telegram и 2FA": "ext",
+        "Архив сделок и Бюджеты сделок": "ext",
+        "Расширенная база знаний БАРС-Офис": "ext",
+    }
+
+    @classmethod
+    def _resolve_doc_code(cls, payload: dict) -> str:
+        doc_title = str(payload.get("doc_title") or payload.get("doc_name") or "")
+        doc_id = str(payload.get("doc_id") or "")
+        code = cls.DOC_CODES.get(doc_title) or cls.DOC_CODES.get(doc_id)
+        if not code:
+            title_lower = doc_title.lower()
+            if "мебел" in title_lower:
+                code = "mebel"
+            elif "командиров" in title_lower:
+                code = "bp"
+            elif "функционал" in title_lower:
+                code = "func"
+            else:
+                code = "ext"
+        return code
+
+    @classmethod
+    def _format_source(
+        cls,
+        payloads: list[dict] | dict,
+        bot_username: str | None = None,
+    ) -> str:
+        if isinstance(payloads, dict):
+            payloads_list = [payloads]
+        else:
+            payloads_list = list(payloads)
+
+        if not payloads_list:
+            return "📚 Источник: Документация БАРС-Офис"
+
+        top = payloads_list[0]
+        bot_name = (bot_username or os.getenv("BOT_USERNAME", "BARS_helper_bot")).lstrip("@").strip()
+        doc_title = top.get("doc_title") or top.get("doc_name") or "Документация БАРС-Офис"
+        code = cls._resolve_doc_code(top)
+
+        sec = top.get("section_path", "")
         if isinstance(sec, list):
             sec_str = " > ".join(str(s) for s in sec if s)
         else:
             sec_str = str(sec)
-        page = payload.get("page")
-        page_str = f" (стр. {page})" if page else ""
-        return f"Источник: {doc_title}{', ' + sec_str if sec_str else ''}{page_str}"
+
+        pages: list[int] = []
+        for p in payloads_list:
+            if cls._resolve_doc_code(p) == code:
+                raw_page = p.get("page")
+                if raw_page is not None:
+                    try:
+                        p_num = int(raw_page)
+                        if p_num > 0 and p_num not in pages:
+                            pages.append(p_num)
+                    except (ValueError, TypeError):
+                        pass
+
+        if not pages:
+            pages = [1]
+        else:
+            pages.sort()
+
+        pages_slug = "_".join(str(p) for p in pages)
+        pages_label = ", ".join(str(p) for p in pages)
+        deep_link = f"https://t.me/{bot_name}?start=src_{code}_{pages_slug}"
+        label = f"{doc_title}{', ' + sec_str if sec_str else ''} (стр. {pages_label})"
+        return f"📚 Источник: {label}\n🔗 Открыть страницу документа: {deep_link}"
 
     @staticmethod
     def _extract_chunk_text(payload: dict) -> str:
-        parts = []
+        """Собирает компактный текст чанка без дублирования OCR и служебных вопросов."""
+        parts: list[str] = []
+        doc_title = (payload.get("doc_title") or payload.get("doc_name") or "").strip()
+        page = payload.get("page")
+        sec = payload.get("section_path", "")
+        sec_str = " > ".join(str(s) for s in sec if s) if isinstance(sec, list) else str(sec)
+        header = f"[{doc_title} | {sec_str} | стр. {page}]".strip(" |")
+        if header:
+            parts.append(header)
+
         raw_text = (payload.get("raw_text") or payload.get("text") or "").strip()
-        enriched = (payload.get("enriched_text") or "").strip()
         parent_text = (payload.get("parent_text") or "").strip()
         diagram = (payload.get("diagram_mermaid") or "").strip()
         ocr = (payload.get("ocr_text") or "").strip()
@@ -290,74 +366,124 @@ class Retriever:
 
         if raw_text:
             parts.append(raw_text)
-        if enriched and enriched != raw_text:
-            parts.append(f"Дополнительное описание:\n{enriched}")
         if parent_text and parent_text not in raw_text:
             parts.append(f"Контекст раздела:\n{parent_text}")
-        if diagram:
-            parts.append(f"Схема БП (Mermaid):\n{diagram}")
-        if ocr and ocr not in raw_text:
-            parts.append(f"Текст со скриншота:\n{ocr}")
-        if ui_elems:
+        if diagram and diagram not in raw_text:
+            parts.append(f"Схема БП:\n{diagram}")
+        if ocr and ocr not in raw_text and "Текст на изображении:" not in raw_text:
+            parts.append(f"Текст со скриншота:\n{ocr[:600]}")
+        if ui_elems and "Элементы интерфейса:" not in raw_text:
             parts.append(f"Элементы интерфейса: {ui_elems}")
-        return "\n\n".join(parts)
+
+        chunk_str = "\n\n".join(parts)
+        return chunk_str[:2200]
+
+    @staticmethod
+    def _clean_fallback_text(context_text: str) -> str:
+        """Очищает резервный текст от технических дампов OCR, если внешний API недоступен."""
+        cleaned_chunks: list[str] = []
+        for block in context_text.split("\n\n---\n\n"):
+            # Убираем длинные списки распознанных слов со скриншотов и синтетические вопросы
+            block_clean = re.sub(
+                r"Текст на изображении:.*?(?=\n\n|\Z)",
+                "",
+                block,
+                flags=re.S,
+            )
+            block_clean = re.sub(
+                r"Вопросы:.*?(?=\n\n|\Z)",
+                "",
+                block_clean,
+                flags=re.S,
+            ).strip()
+            if block_clean:
+                cleaned_chunks.append(block_clean)
+        joined = "\n\n".join(cleaned_chunks) or context_text
+        return joined[:3000].rsplit("\n", 1)[0].strip() if len(joined) > 3000 else joined.strip()
 
     def _collect_images(self, payloads: list[dict]) -> list[str]:
+        if not payloads:
+            return []
+        base = self.kb.export_dir if self.kb else KB_EXPORT_DIR
+        top_code = self._resolve_doc_code(payloads[0])
+
+        same_doc = [p for p in payloads if self._resolve_doc_code(p) == top_code]
+        same_doc.sort(key=lambda x: int(x.get("page") or 0))
+
         images: list[str] = []
-        for p in payloads:
-            img_rel = p.get("image_path")
-            if img_rel:
-                full_path = str((self.kb.export_dir if self.kb else KB_EXPORT_DIR) / img_rel)
+        for p in same_doc:
+            candidates: list[str] = []
+            if p.get("image_path"):
+                candidates.append(str(p["image_path"]))
+            candidates.extend(str(x) for x in (p.get("image_paths") or []))
+            for rel in candidates:
+                full_path = str(base / rel)
                 if os.path.exists(full_path) and full_path not in images:
                     images.append(full_path)
-            for old_img in p.get("image_paths", []):
-                if old_img not in images:
-                    images.append(old_img)
-        return images[:3]
+        return images[:5]
 
     async def _generate_llm_answer(self, query: str, context_text: str) -> tuple[str, str]:
+        fallback_text = self._clean_fallback_text(context_text)
         if not self.llm_client:
-            return "ANSWER", context_text
+            print("[RAG WARNING] llm_client не инициализирован (проверьте LLM_API_KEY)", flush=True)
+            return "ANSWER", fallback_text
 
-        for attempt in range(2):
+        user_prompt = (
+            f"<context>\n{context_text[:12000]}\n</context>\n\n"
+            f"Вопрос пользователя: {query}\n"
+            "Ответь структурированно на все части вопроса строго по фактам из <context>."
+        )
+
+        # Попытка 1: с отключением длинных размышлений (быстрый ответ)
+        # Попытка 2: стандартный вызов без extra_body (максимальная совместимость)
+        configs = [
+            {"max_tokens": 2500, "extra_body": {"reasoning": {"enabled": False}}},
+            {"max_tokens": 3500},
+        ]
+
+        for attempt, cfg in enumerate(configs, start=1):
             try:
                 response = await self.llm_client.chat.completions.create(
                     model=LLM_MODEL,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": f"<context>\n{context_text[:6000]}\n</context>\n\nВопрос пользователя: {query}"
-                        }
+                        {"role": "user", "content": user_prompt},
                     ],
                     temperature=0.1,
-                    max_tokens=600,
-                    timeout=25.0
+                    timeout=35.0,
+                    **cfg,
                 )
-                generated = (response.choices[0].message.content or "").strip()
+                choice = response.choices[0]
+                generated = (choice.message.content or "").strip()
                 if generated:
                     return parse_llm_output(generated)
+                print(
+                    f"[RAG WARNING] Пустой ответ от LLM (attempt={attempt}, finish_reason={choice.finish_reason})",
+                    flush=True,
+                )
             except Exception as exc:
+                print(f"[RAG WARNING] Ошибка вызова LLM (attempt={attempt}): {exc}", flush=True)
                 if attempt == 1:
-                    logger.warning("LLM fallback (используем текст из Qdrant): %s", exc)
-                else:
-                    await asyncio.sleep(0.5)
-        return "ANSWER", context_text
+                    await asyncio.sleep(0.3)
+
+        return "ANSWER", fallback_text
 
     async def track_faq_question(self, query: str, vector: list[float]) -> None:
         try:
             if not await self.qdrant.collection_exists(FAQ_COLLECTION):
                 await self.qdrant.create_collection(
                     collection_name=FAQ_COLLECTION,
-                    vectors_config=VectorParams(size=len(vector), distance=Distance.COSINE)
+                    vectors_config=VectorParams(size=len(vector), distance=Distance.COSINE),
                 )
 
-            hits = (await self.qdrant.query_points(
-                collection_name=FAQ_COLLECTION,
-                query=vector,
-                limit=1,
-                with_payload=True
-            )).points
+            hits = (
+                await self.qdrant.query_points(
+                    collection_name=FAQ_COLLECTION,
+                    query=vector,
+                    limit=1,
+                    with_payload=True,
+                )
+            ).points
 
             if hits and hits[0].score >= self.faq_similarity_threshold:
                 point = hits[0]
@@ -365,7 +491,7 @@ class Retriever:
                 await self.qdrant.set_payload(
                     collection_name=FAQ_COLLECTION,
                     payload={"count": new_count},
-                    points=[point.id]
+                    points=[point.id],
                 )
             else:
                 await self.qdrant.upsert(
@@ -374,9 +500,9 @@ class Retriever:
                         PointStruct(
                             id=str(uuid.uuid4()),
                             vector=vector,
-                            payload={"question": query.strip(), "count": 1}
+                            payload={"question": query.strip(), "count": 1},
                         )
-                    ]
+                    ],
                 )
         except Exception as exc:
             logger.warning("Не удалось обновить статистику FAQ: %s", exc)
@@ -389,11 +515,12 @@ class Retriever:
                 collection_name=FAQ_COLLECTION,
                 limit=100,
                 with_payload=True,
-                with_vectors=False
+                with_vectors=False,
             )
             items = [
                 {"question": r.payload.get("question"), "count": int(r.payload.get("count", 1))}
-                for r in records if r.payload
+                for r in records
+                if r.payload
             ]
             items.sort(key=lambda x: x["count"], reverse=True)
             return items[:10]
@@ -401,7 +528,7 @@ class Retriever:
             logger.warning("Ошибка получения Топ-10 FAQ: %s", exc)
             return []
 
-    async def answer_query(self, query: str) -> RAGResponse:
+    async def answer_query(self, query: str, bot_username: str | None = None) -> RAGResponse:
         query_vec = await asyncio.to_thread(self._embed_one, query)
         vector_list = query_vec.tolist()
         is_work, is_operator_req = self._classify_intent(query, query_vec)
@@ -412,7 +539,7 @@ class Retriever:
                 answer="Переключаю диалог на дежурного специалиста поддержки. История переписки сохранена!",
                 confidence=1.0,
                 flag="ESCALATE",
-                need_operator=True
+                need_operator=True,
             )
 
         vocab_cov = self._vocab_coverage(query)
@@ -426,21 +553,20 @@ class Retriever:
                 ),
                 confidence=0.18,
                 flag="OFF_TOPIC",
-                need_operator=False
+                need_operator=False,
             )
 
-        # 3. Поиск в гибридной базе KB (108 чанков)
+        # 3. Поиск в гибридной базе KB
         payloads: list[dict] = []
         dense_score = 0.0
 
         is_tech_trap = "техник" in query.lower()
         search_query = (
             query.replace("техники", "мебели").replace("техника", "мебель")
-            if is_tech_trap else query
+            if is_tech_trap
+            else query
         )
 
-        # The package may be built after the bot started (or replaced by a
-        # rebuild): retry instead of answering without a knowledge base.
         if self.kb is None:
             self._init_kb()
 
@@ -464,11 +590,10 @@ class Retriever:
                 ),
                 confidence=round(dense_score, 3),
                 flag="OFF_TOPIC",
-                need_operator=False
+                need_operator=False,
             )
 
-        # Фиксируем валидный рабочий вопрос в Топ-10
-        await self.track_faq_question(query, vector_list)
+        asyncio.create_task(self.track_faq_question(query, vector_list))
 
         if vocab_cov < 0.25 and not is_tech_trap:
             score = round(min(0.38, dense_score * 0.6), 3)
@@ -477,8 +602,7 @@ class Retriever:
 
         # 4. Ловушка жюри («Реестр техники», которого нет в БЗ)
         if is_tech_trap and payloads:
-            top = payloads[0]
-            source_str = self._format_source(top)
+            source_str = self._format_source(payloads[:4], bot_username)
             combined_context = "\n\n---\n\n".join(self._extract_chunk_text(p) for p in payloads[:4])
             _, llm_body = await self._generate_llm_answer(search_query, combined_context)
             return RAGResponse(
@@ -492,7 +616,7 @@ class Retriever:
                 flag="ESCALATE",
                 need_operator=True,
                 source=source_str,
-                images=self._collect_images(payloads[:3])
+                images=self._collect_images(payloads[:4]),
             )
 
         # 5. ДИАПАЗОН 0.4 - 0.0: Рабочий вопрос, но ответа в документах нет -> ESCALATE
@@ -504,11 +628,11 @@ class Retriever:
                 ),
                 confidence=score,
                 flag="ESCALATE",
-                need_operator=True
+                need_operator=True,
             )
 
         top = payloads[0]
-        source_str = self._format_source(top)
+        source_str = self._format_source(payloads[:5], bot_username)
 
         # 6. ДИАПАЗОН 0.7 - 0.4: Размытый вопрос -> CLARIFY
         if score < self.high_threshold:
@@ -523,10 +647,10 @@ class Retriever:
                 confidence=score,
                 flag="CLARIFY",
                 need_operator=False,
-                source=source_str
+                source=source_str,
             )
 
-        # 7. ДИАПАЗОН 1.0 - 0.7: Точный ответ по Топ-5 чанкам из новой базы через Qwen + парсинг флага
+        # 7. ДИАПАЗОН 1.0 - 0.7: Точный ответ по Топ-5 чанкам через Qwen
         combined_context = "\n\n---\n\n".join(self._extract_chunk_text(p) for p in payloads[:5])
         llm_flag, llm_body = await self._generate_llm_answer(query, combined_context)
 
@@ -535,7 +659,7 @@ class Retriever:
                 answer=llm_body,
                 confidence=0.25,
                 flag="OFF_TOPIC",
-                need_operator=False
+                need_operator=False,
             )
 
         if llm_flag == "CLARIFY":
@@ -544,7 +668,7 @@ class Retriever:
                 confidence=0.55,
                 flag="CLARIFY",
                 need_operator=False,
-                source=source_str
+                source=source_str,
             )
 
         if llm_flag == "ESCALATE":
@@ -554,7 +678,7 @@ class Retriever:
                 flag="ESCALATE",
                 need_operator=True,
                 source=source_str,
-                images=self._collect_images(payloads[:3])
+                images=self._collect_images(payloads[:5]),
             )
 
         return RAGResponse(
@@ -563,5 +687,5 @@ class Retriever:
             flag="ANSWER",
             need_operator=False,
             source=source_str,
-            images=self._collect_images(payloads[:3])
+            images=self._collect_images(payloads[:5]),
         )

@@ -165,7 +165,7 @@ def test_bot_handler_writes_metrics_after_answer(session_maker) -> None:
             pass
 
     class FakeAIService:
-        async def answer(self, user_id: int, question: str, context: list, image_path=None) -> AIResult:
+        async def answer(self, user_id: int, question: str, context: list, image_path=None, bot_username=None) -> AIResult:
             return AIResult(
                 answer="Нужен оператор, чтобы помочь с командировкой.",
                 flag="ESCALATE",

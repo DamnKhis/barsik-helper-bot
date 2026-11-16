@@ -75,7 +75,7 @@ class _FakeRetriever:
         self.queries: list[str] = []
         self._images = images or []
 
-    async def answer_query(self, query: str):
+    async def answer_query(self, query: str, bot_username: str | None = None):
         self.queries.append(query)
         return SimpleNamespace(
             answer="Ответ по документации",
@@ -245,7 +245,7 @@ def test_handler_processes_photo(tmp_path, monkeypatch, no_db) -> None:
     seen: dict = {}
 
     class _Service:
-        async def answer(self, user_id, question, context, image_path=None):
+        async def answer(self, user_id, question, context, image_path=None, bot_username=None):
             seen["question"] = question
             seen["image_path"] = image_path
             return user_module.AIResult(answer="Ответ по скриншоту", flag="ANSWER", source="БП Командировка")
@@ -275,7 +275,7 @@ def test_handler_text_question_has_no_image(tmp_path, monkeypatch, no_db) -> Non
     seen: dict = {}
 
     class _Service:
-        async def answer(self, user_id, question, context, image_path=None):
+        async def answer(self, user_id, question, context, image_path=None, bot_username=None):
             seen["image_path"] = image_path
             return user_module.AIResult(answer="Ответ", flag="ANSWER")
 
@@ -296,7 +296,7 @@ def test_handler_masks_image_only_question_placeholder(tmp_path, monkeypatch, no
     seen: dict = {}
 
     class _Service:
-        async def answer(self, user_id, question, context, image_path=None):
+        async def answer(self, user_id, question, context, image_path=None, bot_username=None):
             seen["question"] = question
             return user_module.AIResult(answer="Ответ", flag="ANSWER")
 

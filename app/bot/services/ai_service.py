@@ -10,8 +10,6 @@ RAG-модуль (app/rag/retriever.py) принадлежит другой ко
 `Retriever.answer_query(<строка>)`.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -23,6 +21,15 @@ from app.bot.services.vision import build_query, describe_image_async
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+MAX_TG_TEXT_LEN = 3950
+
+
+def _clamp_tg_text(text: str) -> str:
+    if len(text) <= MAX_TG_TEXT_LEN:
+        return text
+    cut = text[:MAX_TG_TEXT_LEN].rsplit("\n", 1)[0].rstrip()
+    return f"{cut}\n…\n(текст сокращён под лимит Telegram)"
 
 
 @dataclass(slots=True)
@@ -92,6 +99,7 @@ class AIService:
         question: str,
         context: list[dict],
         image_path: Path | None = None,
+        bot_username: str | None = None,
     ) -> AIResult:
         query = await self.prepare_query(question, image_path)
 
@@ -111,9 +119,9 @@ class AIService:
         retriever = await self._ensure_retriever()
         if retriever is not None:
             try:
-                result = await retriever.answer_query(query)
+                result = await retriever.answer_query(query, bot_username=bot_username)
                 flag = str(getattr(result, "flag", "ANSWER"))
-                text = str(getattr(result, "answer", "") or "").strip()
+                text = _clamp_tg_text(str(getattr(result, "answer", "") or "").strip())
                 if not text:
                     raise ValueError("RAG вернул пустой ответ")
                 return AIResult(
@@ -130,7 +138,7 @@ class AIService:
 
         known, text = await get_ai_answer(user_id, query, context)
         return AIResult(
-            answer=text,
+            answer=_clamp_tg_text(text),
             flag="ANSWER" if known else "ESCALATE",
             need_operator=not known,
             known=known,

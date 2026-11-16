@@ -314,6 +314,7 @@ async def handle_question(
         stored_question,
         context,
         image_path=image_path,
+        bot_username=settings.bot_username or None,
     )
     response_ms = int((time.perf_counter() - started) * 1000)
     await redis_context.append_pair(user.telegram_id, stored_question, result.answer)
