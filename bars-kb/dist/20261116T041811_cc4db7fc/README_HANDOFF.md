@@ -4,17 +4,17 @@
 
 | Параметр | Значение |
 |---|---|
-| build_id | `20261116T005001_cc4db7fc` |
-| коллекция | `bars_kb_20261116T005001_cc4db7fc` |
+| build_id | `20261116T041811_cc4db7fc` |
+| коллекция | `bars_kb_20261116T041811_cc4db7fc` |
 | alias | `bars_kb_current` |
 | предыдущая версия | `bars_kb_prev` |
 | source digest | `cc4db7fcb5702ab4` |
-| создан | 2026-11-16T00:50:31.616820+00:00 |
+| создан | 2026-11-16T04:25:33.857844+00:00 |
 | эмбеддинги | `qwen` / `qwen/qwen3-embedding-8b`, dim `1024` |
 | текст и JSON | `qwen/qwen3.8-flash` |
 | скриншоты и схемы | `qwen/qwen3.8-flash` |
 | sparse | BM25, IDF |
-| snapshot | `нет (embedded Qdrant)` |
+| snapshot | `bars_kb_20261116T041811_cc4db7fc-7408061863732421-2026-11-16-04-25-31-0.snapshot` |
 
 ## Состав
 
@@ -66,7 +66,7 @@ python examples/restore_from_export.py \
 ## Проверка целостности
 
 ```bash
-cd 20261116T005001_cc4db7fc && sha256sum -c checksums.sha256
+cd 20261116T041811_cc4db7fc && sha256sum -c checksums.sha256
 ```
 
 ## Поиск

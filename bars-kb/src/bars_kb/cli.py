@@ -81,6 +81,36 @@ def _resolve_sources(settings, args) -> list[tuple[Path, str]]:
     return sources
 
 
+def _qdrant_collection_missing(settings, manifest: dict | None) -> bool:
+    """True, если коллекцию текущей сборки потеряли в Qdrant.
+
+    Бывает, когда ``dist/`` обновили (git pull / publish), а Qdrant остался
+    старым: сборка в ``LATEST`` есть, а её коллекции в Qdrant нет — поиск
+    молча падает, и бот отвечает «нет в базе знаний». В этом случае нужно
+    пересобрать пакет, даже если digest документов не менялся.
+
+    Если Qdrant недоступен или имя коллекции неизвестно, возвращаем ``False``:
+    перезапускать сборку вслепую нельзя, иначе получится бесконечный цикл.
+    """
+    collection = str((manifest or {}).get("collection") or "").strip()
+    if not collection:
+        return False
+    try:
+        from .store.qdrant_store import QdrantStore
+
+        store = QdrantStore(settings, collection)
+    except Exception as exc:  # Qdrant недоступен — доверяем digest
+        logger.warning("cannot reach Qdrant, skipping collection check %s: %s", collection, exc)
+        return False
+    try:
+        return not store.client.collection_exists(collection)
+    except Exception as exc:
+        logger.warning("cannot verify Qdrant collection %s: %s", collection, exc)
+        return False
+    finally:
+        store.close()
+
+
 def _needs_rebuild(settings, sources: list[tuple[Path, str]] | None = None) -> tuple[bool, str | None]:
     """Compare document contents with the build clients currently use."""
     files = collect_sources(settings, sources)
@@ -89,6 +119,12 @@ def _needs_rebuild(settings, sources: list[tuple[Path, str]] | None = None) -> t
     digest, _ = fingerprint_sources(files)
     current = _current_manifest(settings)
     if current and (current.get("source") or {}).get("digest") == digest:
+        if _qdrant_collection_missing(settings, current):
+            logger.warning(
+                "build %s is in dist but its collection is missing in Qdrant; rebuilding",
+                current.get("build_id", "?"),
+            )
+            return True, digest
         return False, digest
     return True, digest
 

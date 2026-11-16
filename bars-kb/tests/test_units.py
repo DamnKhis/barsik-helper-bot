@@ -482,6 +482,40 @@ class DistFlowTest(unittest.TestCase):
             changed, _ = _needs_rebuild(settings, source)
             self.assertTrue(changed)
 
+    def test_needs_rebuild_when_qdrant_collection_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "a.txt").write_text("one", encoding="utf-8")
+            dist = root / "dist"
+            self._make_build(dist, self.BUILDS[0], {"collection": "bars_kb_lost"})
+            write_latest(dist, self.BUILDS[0])
+            settings = replace(
+                load_settings(ROOT),
+                root=root,
+                data_dir=root / "data",
+                dist_dir=dist,
+            )
+
+            _, digest = _needs_rebuild(settings, source)
+            manifest_path = dist / self.BUILDS[0] / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["source"] = {"digest": digest}
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            # Collection still in Qdrant and digest matches -> no rebuild.
+            with mock.patch("bars_kb.store.qdrant_store.QdrantStore") as store_cls:
+                store_cls.return_value.client.collection_exists.return_value = True
+                changed, _ = _needs_rebuild(settings, source)
+            self.assertFalse(changed)
+
+            # Collection lost in Qdrant -> rebuild despite matching digest.
+            with mock.patch("bars_kb.store.qdrant_store.QdrantStore") as store_cls:
+                store_cls.return_value.client.collection_exists.return_value = False
+                changed, _ = _needs_rebuild(settings, source)
+            self.assertTrue(changed)
+
     def test_latest_pointer_is_re_read_without_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             dist = Path(tmp) / "dist"

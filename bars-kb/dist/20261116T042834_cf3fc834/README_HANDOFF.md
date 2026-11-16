@@ -4,17 +4,17 @@
 
 | Параметр | Значение |
 |---|---|
-| build_id | `20261115T230543_1e01c5cb` |
-| коллекция | `bars_kb_20261115T230543_1e01c5cb` |
+| build_id | `20261116T042834_cf3fc834` |
+| коллекция | `bars_kb_20261116T042834_cf3fc834` |
 | alias | `bars_kb_current` |
 | предыдущая версия | `bars_kb_prev` |
-| source digest | `1e01c5cbf9415d1a` |
-| создан | 2026-11-15T23:12:23.186717+00:00 |
+| source digest | `cf3fc834b1b1f226` |
+| создан | 2026-11-16T04:29:20.691907+00:00 |
 | эмбеддинги | `qwen` / `qwen/qwen3-embedding-8b`, dim `1024` |
 | текст и JSON | `qwen/qwen3.8-flash` |
 | скриншоты и схемы | `qwen/qwen3.8-flash` |
 | sparse | BM25, IDF |
-| snapshot | `bars_kb_20261115T230543_1e01c5cb-7408061863732421-2026-11-15-23-12-20-0.snapshot` |
+| snapshot | `bars_kb_20261116T042834_cf3fc834-7408061863732421-2026-11-16-04-29-17-1.snapshot` |
 
 ## Состав
 
@@ -29,19 +29,23 @@
 | `build_info.json` | краткая информация о сборке |
 | `sparse_vocab.json` | словарь BM25; обязателен для sparse-поиска |
 | `golden_retrieval.jsonl` | контрольные вопросы для eval |
+| `support_golden.jsonl` | контрольные вопросы из решённых обращений |
 | `eval_report.json` | метрики hit@1/3/5, MRR и примеры выдачи (после `bars-kb eval`) |
 | `checksums.sha256` | SHA256 всех файлов пакета |
 
 ## Данные
 
-- документов: **5**
-- чанков: **132**
+- документов: **6** (из них решённых обращений поддержки:
+  **1**)
+- чанков: **133**
 - text: 77, faq: 13, table: 4,
-  screenshot: 36, diagram: 2
+  screenshot: 36, diagram: 2,
+  support: 1 (пары «вопрос/ответ» из решённых обращений)
 
 Подробная схема payload — в `HANDOFF.md` проекта. Кратко: поиск идёт по `enriched_text`,
 ответ и цитата — по `raw_text`; `parent_text` даёт контекст раздела; `section_path` и
-`page` — для ссылки на источник.
+`page` — для ссылки на источник. Поле `doc_kind` отличает документацию (`doc`) от
+решённых обращений поддержки (`support`), `source_path` ведёт к исходному файлу.
 
 ## Восстановление
 
@@ -62,7 +66,7 @@ python examples/restore_from_export.py \
 ## Проверка целостности
 
 ```bash
-cd 20261115T230543_1e01c5cb && sha256sum -c checksums.sha256
+cd 20261116T042834_cf3fc834 && sha256sum -c checksums.sha256
 ```
 
 ## Поиск

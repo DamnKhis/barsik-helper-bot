@@ -1,5 +1,5 @@
 {
-  "collection": "bars_kb_20261115T230543_1e01c5cb",
+  "collection": "bars_kb_20261116T042834_cf3fc834",
   "alias": "bars_kb_current",
   "vectors": {
     "dense": {
@@ -24,7 +24,8 @@
     "doc_id",
     "chunk_type",
     "version",
-    "tags"
+    "tags",
+    "doc_kind"
   ],
-  "snapshot": "bars_kb_20261115T230543_1e01c5cb-7408061863732421-2026-11-15-23-12-20-0.snapshot"
+  "snapshot": "bars_kb_20261116T042834_cf3fc834-7408061863732421-2026-11-16-04-29-17-1.snapshot"
 }

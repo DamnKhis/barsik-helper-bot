@@ -1,39 +1,84 @@
 {
-  "build_id": "20261115T230543_1e01c5cb",
-  "collection": "bars_kb_20261115T230543_1e01c5cb",
+  "build_id": "20261116T042834_cf3fc834",
+  "collection": "bars_kb_20261116T042834_cf3fc834",
   "alias": "bars_kb_current",
-  "created_at": "2026-11-15T23:12:23.190459+00:00",
+  "created_at": "2026-11-16T04:29:20.694369+00:00",
   "pipeline_version": "0.1.0",
   "source": {
-    "digest": "1e01c5cbf9415d1ad7c7bdb8f3d832dccdf103fc10c02d009108bd485bf18771",
+    "digest": "cf3fc834b1b1f226ac1fc06b4ed9403818a71c1c910d97a5ee30e22ab2ca7d03",
     "files": [
       {
-        "path": "БП Командировка.pdf",
+        "path": "doc/source/БП Командировка.pdf",
+        "kind": "doc",
         "sha256": "977996fbc4c6e9c5b5bc086c7cba9531b1e0ebff7bce2990dab101431a124bfa",
         "size": 357812
       },
       {
-        "path": "БП Пропуск.docx",
+        "path": "doc/source/БП Пропуск.docx",
+        "kind": "doc",
         "sha256": "47821bf8813234e41619ba07b152dc48414f878ba211526401c51ed768d18588",
         "size": 182025
       },
       {
-        "path": "Реестр мебели.pdf",
+        "path": "doc/source/Реестр мебели.pdf",
+        "kind": "doc",
         "sha256": "2b4f79ca57f11d9e0d10be24f13dbae3f5929db853d03ba2b4f4436b9d6552d6",
         "size": 272125
       },
       {
-        "path": "Справочник_БАРС_Офис_—_Расширенная_фактологическая_база_знаний.pdf",
+        "path": "doc/source/Справочник_БАРС_Офис_—_Расширенная_фактологическая_база_знаний.pdf",
+        "kind": "doc",
         "sha256": "d2d1d3ced1b2e13c8501640f2b78fa43919830be4d8fa56ccc5669494d79e391",
         "size": 308076
       },
       {
-        "path": "Функциональные_возможности_работы_с_БАРС_Офисом.pdf",
+        "path": "doc/source/Функциональные_возможности_работы_с_БАРС_Офисом.pdf",
+        "kind": "doc",
         "sha256": "036263d62669c831dbcb4bff08fddd78a3e671e6efb9a81093449875cde09972",
         "size": 1002931
+      },
+      {
+        "path": "support/support_answers/KAN-21.md",
+        "kind": "support",
+        "sha256": "67bca5db2e2e1d50bcc8438d2dad3a22a2b2e82586195767c9e6ce95b9c2465b",
+        "size": 1344
+      },
+      {
+        "path": "support/support_answers/KAN-23.md",
+        "kind": "support",
+        "sha256": "4c17a55c314eba168c46c8f62f97fb116e83b2cde1d7b0b590a25cdcd3b7c0fa",
+        "size": 781
+      },
+      {
+        "path": "support/support_answers/KAN-26.md",
+        "kind": "support",
+        "sha256": "a79de7a2167827d22c1966f269963f7d736c6f14298450839fc8d54af0ea982f",
+        "size": 1638
       }
     ]
   },
+  "sources": [
+    {
+      "kind": "doc",
+      "digest": "3d4e456e21280409d7992eb1e498c07995e908fe8782b149f22da6568aa8e05f",
+      "files": [
+        "doc/source/БП Командировка.pdf",
+        "doc/source/БП Пропуск.docx",
+        "doc/source/Реестр мебели.pdf",
+        "doc/source/Справочник_БАРС_Офис_—_Расширенная_фактологическая_база_знаний.pdf",
+        "doc/source/Функциональные_возможности_работы_с_БАРС_Офисом.pdf"
+      ]
+    },
+    {
+      "kind": "support",
+      "digest": "9ad94083f76c936af3a9047fa9e63e4f99dfec2e3aacfa69dae7d0e130007607",
+      "files": [
+        "support/support_answers/KAN-21.md",
+        "support/support_answers/KAN-23.md",
+        "support/support_answers/KAN-26.md"
+      ]
+    }
+  ],
   "embedding": {
     "provider": "qwen",
     "model": "qwen/qwen3-embedding-8b",
@@ -47,7 +92,7 @@
   },
   "sparse": {
     "type": "bm25",
-    "vocab_size": 3399,
+    "vocab_size": 3427,
     "modifier": "idf"
   },
   "documents": [
@@ -61,6 +106,7 @@
       "page_count": 15,
       "section_count": 7,
       "chunk_count": 21,
+      "kind": "doc",
       "github_url": ""
     },
     {
@@ -73,6 +119,7 @@
       "page_count": 1,
       "section_count": 14,
       "chunk_count": 18,
+      "kind": "doc",
       "github_url": ""
     },
     {
@@ -85,6 +132,7 @@
       "page_count": 10,
       "section_count": 9,
       "chunk_count": 15,
+      "kind": "doc",
       "github_url": ""
     },
     {
@@ -97,6 +145,7 @@
       "page_count": 5,
       "section_count": 1,
       "chunk_count": 12,
+      "kind": "doc",
       "github_url": ""
     },
     {
@@ -109,30 +158,46 @@
       "page_count": 26,
       "section_count": 33,
       "chunk_count": 66,
+      "kind": "doc",
+      "github_url": ""
+    },
+    {
+      "doc_id": "kan-23",
+      "title": "KAN-23: полезный ответ поддержки",
+      "source_path": "docs/support_answers/KAN-23.md",
+      "source_type": "markdown",
+      "version": "4c17a55c314eba16",
+      "sha256": "4c17a55c314eba168c46c8f62f97fb116e83b2cde1d7b0b590a25cdcd3b7c0fa",
+      "page_count": 0,
+      "section_count": 2,
+      "chunk_count": 1,
+      "kind": "support",
       "github_url": ""
     }
   ],
   "counts": {
-    "documents": 5,
-    "chunks": 132,
+    "documents": 6,
+    "chunks": 133,
+    "support_documents": 1,
     "images": 38,
     "faq": 13,
+    "support": 1,
     "tables": 4,
     "diagrams": 2,
     "screenshots": 36
   },
   "qdrant": {
-    "count": 132,
-    "snapshot": "bars_kb_20261115T230543_1e01c5cb-7408061863732421-2026-11-15-23-12-20-0.snapshot",
+    "count": 133,
+    "snapshot": "bars_kb_20261116T042834_cf3fc834-7408061863732421-2026-11-16-04-29-17-1.snapshot",
     "mode": "server"
   },
   "export": {
-    "path": "dist/20261115T230543_1e01c5cb",
-    "chunks": 132,
+    "path": "dist/20261116T042834_cf3fc834",
+    "chunks": 133,
     "images": 38,
-    "latest": "20261115T230543_1e01c5cb",
+    "latest": "20261116T042834_cf3fc834",
     "pruned": [
-      "20261114T182839_a5023733"
+      "20261116T005001_cc4db7fc"
     ]
   }
 }

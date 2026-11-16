@@ -1,8 +1,8 @@
 {
-  "build_id": "20261116T005001_cc4db7fc",
-  "collection": "bars_kb_20261116T005001_cc4db7fc",
+  "build_id": "20261116T041811_cc4db7fc",
+  "collection": "bars_kb_20261116T041811_cc4db7fc",
   "alias": "bars_kb_current",
-  "created_at": "2026-11-16T00:50:31.620961+00:00",
+  "created_at": "2026-11-16T04:25:33.861550+00:00",
   "pipeline_version": "0.1.0",
   "source": {
     "digest": "cc4db7fcb5702ab41e0890c57a89a9af61708c39037b59b957b5a03bc4bb9d7d",
@@ -85,7 +85,7 @@
   },
   "sparse": {
     "type": "bm25",
-    "vocab_size": 3422,
+    "vocab_size": 3427,
     "modifier": "idf"
   },
   "documents": [
@@ -181,16 +181,16 @@
   },
   "qdrant": {
     "count": 133,
-    "snapshot": null,
-    "mode": "embedded"
+    "snapshot": "bars_kb_20261116T041811_cc4db7fc-7408061863732421-2026-11-16-04-25-31-0.snapshot",
+    "mode": "server"
   },
   "export": {
-    "path": "dist/20261116T005001_cc4db7fc",
+    "path": "dist/20261116T041811_cc4db7fc",
     "chunks": 133,
     "images": 38,
-    "latest": "20261116T005001_cc4db7fc",
+    "latest": "20261116T041811_cc4db7fc",
     "pruned": [
-      "20261114T205237_a5023733"
+      "20261115T230543_1e01c5cb"
     ]
   }
 }
