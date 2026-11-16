@@ -5,7 +5,7 @@ import logging
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 
@@ -13,12 +13,19 @@ from .config import Settings
 from .enrich.cache import EnrichmentCache
 from .enrich.faq import derive_faqs, faq_text
 from .enrich.images import enrich_image
+from .enrich.support import enrich_support
 from .enrich.tables import enrich_table
 from .enrich.text import enrich_text
 from .models import Block, Chunk, Document, Section, table_to_markdown
 from .providers.base import LLMProvider, VisionProvider
 
 NAMESPACE = uuid.UUID("6f0f6a4e-4f4b-4e2e-9a6d-2a1c0b7d9e11")
+
+# Разметка тикета: «## Вопрос 1» / «## Ответ поддержки 1»
+QUESTION_RE = re.compile(r"^вопрос\s*(\d+)", re.I)
+ANSWER_RE = re.compile(r"^ответ поддержки\s*(\d+)", re.I)
+SUPPORT_MAX_ENRICHED = 12000
+SUPPORT_ANSWER_EXCERPT = 600
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +60,8 @@ class Chunker:
         self.cache = EnrichmentCache(settings.data_dir / "cache")
 
     def document_chunks(self, document: Document) -> list[Chunk]:
+        if document.kind == "support":
+            return self._support_chunks(document)
         plans = [
             plan
             for section in document.sections
@@ -79,6 +88,109 @@ class Chunker:
             chunks.extend(by_plan.get(plan_index, []))
         chunks.extend(self._faq_chunks(document))
         return _dedupe(chunks)
+
+    def _support_chunks(self, document: Document) -> list[Chunk]:
+        """Тикет: пара «вопрос + ответ» — один чанк, ищем по формулировке вопроса.
+
+        В ``raw_text`` лежит и вопрос, и ответ (это увидит генератор ответа), а в
+        ``enriched_text`` — перефразировки вопроса и суть решения: именно по нему
+        считаются dense-вектор и BM25. Картинки пары становятся обычными
+        чанками-скриншотами с тем же разделом.
+        """
+        chunks: list[Chunk] = []
+        sections = list(document.sections)
+        index = 0
+        pair_ordinal = 0
+        while index < len(sections):
+            section = sections[index]
+            question_match = QUESTION_RE.match((section.title or "").strip())
+            if not question_match:
+                # Разделы без пары (например «Диалог») разбираем как обычный текст,
+                # но с пометкой support — чтобы можно было отличить в выдаче.
+                plan = self._prepare_section(document, section)
+                if plan is not None:
+                    tasks = [
+                        _AssetTask(0, plan, "table", ordinal, block)
+                        for ordinal, block in enumerate(plan.section.tables)
+                        if block.table
+                    ] + [
+                        _AssetTask(0, plan, "image", ordinal, block)
+                        for ordinal, block in enumerate(plan.section.images)
+                    ]
+                    assets = [chunk for chunk in self._run_asset_tasks(document, tasks) if chunk is not None]
+                    chunks.extend(replace(chunk, chunk_type="support") for chunk in plan.text_chunks)
+                    chunks.extend(assets)
+                index += 1
+                continue
+
+            answer_section: Section | None = None
+            if index + 1 < len(sections):
+                candidate = sections[index + 1]
+                answer_match = ANSWER_RE.match((candidate.title or "").strip())
+                if answer_match and answer_match.group(1) == question_match.group(1):
+                    answer_section = candidate
+
+            question_text = _section_text(section)
+            answer_text = _section_text(answer_section) if answer_section is not None else ""
+            pair_ordinal += 1
+            # Путь раздела — только «Вопрос N»: заголовок тикета уже в doc_title,
+            # иначе в цитате он повторялся бы дважды.
+            pair_section = replace(section, path=[section.title])
+            chunks.append(
+                self._support_pair_chunk(document, pair_section, question_text, answer_text, pair_ordinal)
+            )
+
+            for source in (section, answer_section):
+                if source is None:
+                    continue
+                # у картинки остаётся свой раздел: картинка из вопроса — «Вопрос N»
+                source_section = replace(source, path=[source.title])
+                for ordinal, block in enumerate(source.images):
+                    image_chunk = self._image_chunk(
+                        document, _SectionPlan(source_section, "", "", []), block, ordinal
+                    )
+                    if image_chunk is not None:
+                        chunks.append(image_chunk)
+            index += 2 if answer_section is not None else 1
+
+        return _dedupe(chunks)
+
+    def _support_pair_chunk(
+        self,
+        document: Document,
+        section: Section,
+        question: str,
+        answer: str,
+        ordinal: int,
+    ) -> Chunk:
+        enrichment = enrich_support(self.settings, self.llm, self.cache, question, answer, document.title)
+        raw = "\n\n".join(part for part in (f"Вопрос: {question}" if question else "", f"Ответ: {answer}" if answer else "") if part)
+        summary = str(enrichment.get("summary") or "")
+        digest = str(enrichment.get("answer_digest") or "")
+        questions = [str(q) for q in enrichment.get("questions", []) if str(q).strip()]
+
+        parts = [
+            f"{document.title} > {' > '.join(section.path)}",
+            f"Вопрос пользователя: {question}" if question else "",
+            f"Похожие формулировки: {'; '.join(questions[:6])}" if questions else "",
+            f"Кратко: {digest or summary}" if (digest or summary) else "",
+            f"Ответ:\n{answer[:SUPPORT_ANSWER_EXCERPT]}" if answer else "",
+        ]
+        enriched = "\n\n".join(part for part in parts if part)[:SUPPORT_MAX_ENRICHED]
+        parent_id = _uid(document.doc_id, "|".join(section.path), "parent")
+
+        return self._chunk(
+            document=document,
+            section=section,
+            chunk_type="support",
+            raw_text=raw,
+            enriched_text=enriched,
+            summary=summary or digest,
+            parent_id=parent_id,
+            parent_text=raw,
+            ordinal=ordinal,
+            entities=enrichment.get("entities", []),
+        )
 
     def _prepare_section(self, document: Document, section: Section) -> _SectionPlan | None:
         text_blocks = [b for b in section.blocks if b.kind in {"paragraph", "list"} and b.text.strip()]
@@ -329,6 +441,7 @@ class Chunker:
             version=document.version,
             meta={
                 "doc_type": document.source_type,
+                "doc_kind": document.kind,
                 "source_path": document.source_path,
                 **(meta or {}),
             },
@@ -382,6 +495,15 @@ def _split_long(text: str, max_chars: int) -> list[str]:
     if buffer:
         result.append(buffer.strip())
     return result or [text[:max_chars]]
+
+
+def _section_text(section: Section | None) -> str:
+    """Текст раздела без таблиц и картинок: абзацы и списки."""
+    if section is None:
+        return ""
+    return "\n\n".join(
+        block.text.strip() for block in section.blocks if block.kind in {"paragraph", "list"} and block.text.strip()
+    ).strip()
 
 
 def _join_enriched(

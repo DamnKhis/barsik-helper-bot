@@ -26,6 +26,9 @@ class Settings:
     images_dir: Path
     qdrant_path: Path
     dist_dir: Path
+    # Решённые обращения поддержки — второй источник рядом с документацией.
+    support_inbox: Path = Path("docs/support_answers")
+    support_index_mode: str = "dialogs"
     llm_provider: str = "mock"
     vision_provider: str = "mock"
     embedding_provider: str = "hash"
@@ -49,6 +52,13 @@ class Settings:
     github_token: str = ""
     github_docs_path: str = "docs"
     extra: dict[str, str] = field(default_factory=dict)
+
+    def source_roots(self) -> list[tuple[Path, str]]:
+        """Папки-источники: документация и решённые обращения поддержки."""
+        roots = [(self.inbox, "doc")]
+        if self.support_inbox != self.inbox:
+            roots.append((self.support_inbox, "support"))
+        return roots
 
     @property
     def mock_llm(self) -> bool:
@@ -92,6 +102,8 @@ def load_settings(root: Path | None = None) -> Settings:
         root=root,
         data_dir=p("DATA_DIR", "data"),
         inbox=p("DOCS_PATH", "docs/source"),
+        support_inbox=p("SUPPORT_DOCS_PATH", "docs/support_answers"),
+        support_index_mode=s("SUPPORT_INDEX_MODE", "dialogs"),
         images_dir=p("IMAGES_DIR", "data/images"),
         qdrant_path=p("QDRANT_PATH", "data/qdrant"),
         dist_dir=root / "dist",

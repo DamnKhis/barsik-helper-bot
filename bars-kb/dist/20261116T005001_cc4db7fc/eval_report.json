@@ -1,12 +1,34 @@
 {
-  "generated_at": "2026-11-14T21:04:21.525715+00:00",
-  "build_id": "20261114T205237_a5023733",
-  "collection": "bars_kb_20261114T205237_a5023733",
-  "questions": 13,
-  "hit@1": 0.8462,
+  "generated_at": "2026-11-16T00:50:49.049203+00:00",
+  "build_id": "20261116T005001_cc4db7fc",
+  "collection": "bars_kb_20261116T005001_cc4db7fc",
+  "questions": 14,
+  "hit@1": 0.7857,
   "hit@3": 1.0,
   "hit@5": 1.0,
-  "mrr": 0.8974,
+  "mrr": 0.869,
+  "by_type": {
+    "support": {
+      "questions": 1,
+      "hit@1": 1.0,
+      "hit@3": 1.0
+    },
+    "text": {
+      "questions": 7,
+      "hit@1": 0.7143,
+      "hit@3": 1.0
+    },
+    "trick": {
+      "questions": 4,
+      "hit@1": 0.75,
+      "hit@3": 1.0
+    },
+    "visual": {
+      "questions": 2,
+      "hit@1": 1.0,
+      "hit@3": 1.0
+    }
+  },
   "rows": [
     {
       "id": "tc01",
@@ -16,19 +38,8 @@
       "rank": 1,
       "top": [
         {
-          "chunk_id": "1cf2cd6c-f7af-5907-8fdf-f03b34428d76",
-          "score": 0.66747,
-          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
-          "section": [
-            "1 Начало работы в БАРС-Офис",
-            "1.1 Главное меню",
-            "1.1.1 Панель быстрого доступа"
-          ],
-          "chunk_type": "screenshot"
-        },
-        {
           "chunk_id": "331d7209-7589-583c-be51-528a8892eb75",
-          "score": 0.66566,
+          "score": 0.66795,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "1 Начало работы в БАРС-Офис",
@@ -38,8 +49,19 @@
           "chunk_type": "text"
         },
         {
+          "chunk_id": "1cf2cd6c-f7af-5907-8fdf-f03b34428d76",
+          "score": 0.66588,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "1 Начало работы в БАРС-Офис",
+            "1.1 Главное меню",
+            "1.1.1 Панель быстрого доступа"
+          ],
+          "chunk_type": "screenshot"
+        },
+        {
           "chunk_id": "062721e5-2697-589f-b44f-be5a835928dc",
-          "score": 0.57944,
+          "score": 0.57104,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "Функциональные возможности"
@@ -57,7 +79,7 @@
       "top": [
         {
           "chunk_id": "510677e9-630a-598c-882c-c075e1aa6320",
-          "score": 0.65969,
+          "score": 0.66461,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -68,7 +90,7 @@
         },
         {
           "chunk_id": "c3a58b15-80f6-53b4-b544-00ea81d85e36",
-          "score": 0.64031,
+          "score": 0.62524,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -79,7 +101,7 @@
         },
         {
           "chunk_id": "8b97f1b2-6bb6-581e-adf7-1681f22be501",
-          "score": 0.59601,
+          "score": 0.59226,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -99,7 +121,7 @@
       "top": [
         {
           "chunk_id": "7a8bef03-420e-5c0b-8e45-27234aac1ffd",
-          "score": 0.84729,
+          "score": 0.84703,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -110,7 +132,7 @@
         },
         {
           "chunk_id": "0fd29995-1ca4-55f7-b59f-8dea11717896",
-          "score": 0.71907,
+          "score": 0.7176,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -121,7 +143,7 @@
         },
         {
           "chunk_id": "c3a58b15-80f6-53b4-b544-00ea81d85e36",
-          "score": 0.66511,
+          "score": 0.64196,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -141,7 +163,7 @@
       "top": [
         {
           "chunk_id": "2108fdd3-ae93-5cc4-ad13-55c7e3d4138b",
-          "score": 0.59102,
+          "score": 0.59571,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "1 Начало работы в БАРС-Офис",
@@ -152,7 +174,7 @@
         },
         {
           "chunk_id": "98f0758b-c490-5152-bcd9-53575e0c75b3",
-          "score": 0.5971,
+          "score": 0.59706,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -163,7 +185,7 @@
         },
         {
           "chunk_id": "833e5a7d-d5fb-5ae2-8e1a-3b9017824f1c",
-          "score": 0.7121,
+          "score": 0.71165,
           "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
           "section": [
             "2 Работа с документами БО",
@@ -183,7 +205,7 @@
       "top": [
         {
           "chunk_id": "d5c4784c-fcd2-5b26-9866-eaad1fbd8ebd",
-          "score": 0.7862,
+          "score": 0.78413,
           "doc_id": "bp-komandirovka",
           "section": [
             "5 Инструкция"
@@ -192,7 +214,7 @@
         },
         {
           "chunk_id": "dccd31b0-3ae3-5056-8c62-f33b35b34ae4",
-          "score": 0.64264,
+          "score": 0.63701,
           "doc_id": "bp-komandirovka",
           "section": [
             "5 Инструкция"
@@ -200,13 +222,13 @@
           "chunk_type": "text"
         },
         {
-          "chunk_id": "0a2c20f8-8d92-559e-8442-9ae3bad7c33d",
-          "score": 0.61709,
+          "chunk_id": "7942312d-fb55-5015-9a3c-efdb81c8b0dc",
+          "score": 0.58874,
           "doc_id": "bp-komandirovka",
           "section": [
-            "3 Для кого"
+            "2 Схема бизнес-процесса"
           ],
-          "chunk_type": "text"
+          "chunk_type": "diagram"
         }
       ]
     },
@@ -219,7 +241,7 @@
       "top": [
         {
           "chunk_id": "ffb75d5f-e5d7-58de-9e7b-9d3eccb0f24c",
-          "score": 0.5914,
+          "score": 0.58703,
           "doc_id": "bp-komandirovka",
           "section": [
             "1 Содержание"
@@ -228,7 +250,7 @@
         },
         {
           "chunk_id": "d07de5fa-dfc8-56e6-a0e1-6013125565bc",
-          "score": 0.47694,
+          "score": 0.47766,
           "doc_id": "bp-komandirovka",
           "section": [
             "1 Содержание"
@@ -236,11 +258,11 @@
           "chunk_type": "text"
         },
         {
-          "chunk_id": "8463d1f0-0c33-5d72-b9e6-b91e177af88d",
-          "score": 0.44035,
-          "doc_id": "reestr-mebeli",
+          "chunk_id": "96ad8576-313a-51da-9720-30d715f7259f",
+          "score": 0.44572,
+          "doc_id": "bp-propusk",
           "section": [
-            "1 Доступ к функционалу"
+            "3 Для кого"
           ],
           "chunk_type": "text"
         }
@@ -255,7 +277,7 @@
       "top": [
         {
           "chunk_id": "2ae4c2a3-542f-5801-bb18-fc13321c5c0f",
-          "score": 0.74652,
+          "score": 0.75157,
           "doc_id": "bp-komandirovka",
           "section": [
             "5 Инструкция"
@@ -263,22 +285,20 @@
           "chunk_type": "faq"
         },
         {
-          "chunk_id": "a01701b9-00b4-5ed3-a882-ba4863045f87",
-          "score": 0.50287,
-          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "chunk_id": "822ac4ea-84a0-5565-8664-a23aaca996a8",
+          "score": 0.69302,
+          "doc_id": "spravocnik-bars-ofis-rassirennaa-faktologiceskaa-baza-znanii",
           "section": [
-            "2 Работа с документами БО",
-            "2.4 Дополнительные возможности",
-            "2.4.5 Ссылки на документ"
+            "ЕИС • БАЗА ЗНАНИЙ СЛУЖБЫ ПОДДЕРЖКИ «БАРС-ОФИС»"
           ],
-          "chunk_type": "screenshot"
+          "chunk_type": "faq"
         },
         {
-          "chunk_id": "a5ec7f5b-26d9-5048-9a2c-b758bcd68f39",
-          "score": 0.50688,
-          "doc_id": "bp-komandirovka",
+          "chunk_id": "bd923c92-de78-523e-a581-30b44897a94e",
+          "score": 0.55225,
+          "doc_id": "spravocnik-bars-ofis-rassirennaa-faktologiceskaa-baza-znanii",
           "section": [
-            "5 Инструкция"
+            "ЕИС • БАЗА ЗНАНИЙ СЛУЖБЫ ПОДДЕРЖКИ «БАРС-ОФИС»"
           ],
           "chunk_type": "text"
         }
@@ -293,7 +313,7 @@
       "top": [
         {
           "chunk_id": "c79db328-21f4-5eb4-888e-473785bdd623",
-          "score": 0.8224,
+          "score": 0.82577,
           "doc_id": "bp-komandirovka",
           "section": [
             "5 Инструкция"
@@ -301,8 +321,8 @@
           "chunk_type": "faq"
         },
         {
-          "chunk_id": "bb52ec62-d4fc-5a9d-ae3b-451ca85f1da9",
-          "score": 0.68099,
+          "chunk_id": "01d491b6-ee7f-5e18-ada4-d852df5a12f2",
+          "score": 0.67928,
           "doc_id": "bp-komandirovka",
           "section": [
             "5 Инструкция"
@@ -310,8 +330,8 @@
           "chunk_type": "text"
         },
         {
-          "chunk_id": "01d491b6-ee7f-5e18-ada4-d852df5a12f2",
-          "score": 0.67917,
+          "chunk_id": "3c97ce7b-993f-51ee-8b5d-51edebc036f3",
+          "score": 0.64433,
           "doc_id": "bp-komandirovka",
           "section": [
             "5 Инструкция"
@@ -329,7 +349,7 @@
       "top": [
         {
           "chunk_id": "71b9b2d2-df47-577d-b106-8c26d5cefb92",
-          "score": 0.86147,
+          "score": 0.85965,
           "doc_id": "bp-komandirovka",
           "section": [
             "5 Инструкция"
@@ -338,7 +358,7 @@
         },
         {
           "chunk_id": "520c0e13-b200-5041-b224-663d84bfbd2a",
-          "score": 0.58051,
+          "score": 0.57977,
           "doc_id": "bp-komandirovka",
           "section": [
             "6 Дополнительная информация"
@@ -347,7 +367,7 @@
         },
         {
           "chunk_id": "7942312d-fb55-5015-9a3c-efdb81c8b0dc",
-          "score": 0.56366,
+          "score": 0.56304,
           "doc_id": "bp-komandirovka",
           "section": [
             "2 Схема бизнес-процесса"
@@ -365,7 +385,7 @@
       "top": [
         {
           "chunk_id": "53798836-8a23-5577-9534-eaaf77a56c2e",
-          "score": 0.6682,
+          "score": 0.66247,
           "doc_id": "reestr-mebeli",
           "section": [
             "3 Описание",
@@ -375,7 +395,7 @@
         },
         {
           "chunk_id": "4c150eeb-5d42-5b61-8b5f-23d9885fdec5",
-          "score": 0.60174,
+          "score": 0.59923,
           "doc_id": "reestr-mebeli",
           "section": [
             "3 Описание",
@@ -384,13 +404,13 @@
           "chunk_type": "screenshot"
         },
         {
-          "chunk_id": "293d00e6-5d72-5367-aa3c-c1fa9476f04e",
-          "score": 0.58854,
+          "chunk_id": "677dcc34-5260-586e-906a-81ed5aa3b4ea",
+          "score": 0.52907,
           "doc_id": "reestr-mebeli",
           "section": [
-            "Реестр мебели"
+            "6 Инструкция работы с функционалом"
           ],
-          "chunk_type": "text"
+          "chunk_type": "screenshot"
         }
       ]
     },
@@ -403,7 +423,7 @@
       "top": [
         {
           "chunk_id": "bf8668b8-d689-59c6-8adb-2d2b60638bc8",
-          "score": 0.8217,
+          "score": 0.82162,
           "doc_id": "reestr-mebeli",
           "section": [
             "6 Инструкция работы с функционалом"
@@ -412,7 +432,7 @@
         },
         {
           "chunk_id": "9bbc973b-1793-5548-88d3-140f2286c974",
-          "score": 0.77486,
+          "score": 0.77256,
           "doc_id": "reestr-mebeli",
           "section": [
             "6 Инструкция работы с функционалом"
@@ -420,13 +440,13 @@
           "chunk_type": "text"
         },
         {
-          "chunk_id": "ba4df855-7ac8-5e23-a183-1fc04b9b1565",
-          "score": 0.8076,
+          "chunk_id": "89f89718-aa1a-5375-a0e6-b604049f0f52",
+          "score": 0.71574,
           "doc_id": "reestr-mebeli",
           "section": [
-            "4 Список полей"
+            "6 Инструкция работы с функционалом"
           ],
-          "chunk_type": "faq"
+          "chunk_type": "text"
         }
       ]
     },
@@ -439,7 +459,7 @@
       "top": [
         {
           "chunk_id": "677dcc34-5260-586e-906a-81ed5aa3b4ea",
-          "score": 0.76467,
+          "score": 0.75869,
           "doc_id": "reestr-mebeli",
           "section": [
             "6 Инструкция работы с функционалом"
@@ -448,7 +468,7 @@
         },
         {
           "chunk_id": "b06395b0-b5ea-511a-bea1-a327f23c929c",
-          "score": 0.67304,
+          "score": 0.67026,
           "doc_id": "reestr-mebeli",
           "section": [
             "2 Список классификаторов/справочников"
@@ -457,7 +477,7 @@
         },
         {
           "chunk_id": "015335aa-8fb1-54da-9759-3e706d57f925",
-          "score": 0.76343,
+          "score": 0.75044,
           "doc_id": "reestr-mebeli",
           "section": [
             "4 Список полей"
@@ -471,11 +491,20 @@
       "question": "Где найти реестр техники?",
       "type": "trick",
       "expected_doc_id": "reestr-mebeli",
-      "rank": 1,
+      "rank": 2,
       "top": [
         {
+          "chunk_id": "69126a9d-609d-542f-aa6d-79ccbd6b2b80",
+          "score": 0.67333,
+          "doc_id": "spravocnik-bars-ofis-rassirennaa-faktologiceskaa-baza-znanii",
+          "section": [
+            "ЕИС • БАЗА ЗНАНИЙ СЛУЖБЫ ПОДДЕРЖКИ «БАРС-ОФИС»"
+          ],
+          "chunk_type": "faq"
+        },
+        {
           "chunk_id": "ba4df855-7ac8-5e23-a183-1fc04b9b1565",
-          "score": 0.66683,
+          "score": 0.65806,
           "doc_id": "reestr-mebeli",
           "section": [
             "4 Список полей"
@@ -484,21 +513,50 @@
         },
         {
           "chunk_id": "293d00e6-5d72-5367-aa3c-c1fa9476f04e",
-          "score": 0.53007,
+          "score": 0.52886,
           "doc_id": "reestr-mebeli",
           "section": [
             "Реестр мебели"
           ],
           "chunk_type": "text"
+        }
+      ]
+    },
+    {
+      "id": "kan-23#Вопрос 1",
+      "question": "как каккать",
+      "type": "support",
+      "expected_doc_id": "kan-23",
+      "rank": 1,
+      "top": [
+        {
+          "chunk_id": "5546ddfb-9acb-5ce8-b0d7-847e72cac67e",
+          "score": 0.72828,
+          "doc_id": "kan-23",
+          "section": [
+            "Вопрос 1"
+          ],
+          "chunk_type": "support"
         },
         {
-          "chunk_id": "bf8668b8-d689-59c6-8adb-2d2b60638bc8",
-          "score": 0.57725,
+          "chunk_id": "89f89718-aa1a-5375-a0e6-b604049f0f52",
+          "score": 0.35037,
           "doc_id": "reestr-mebeli",
           "section": [
             "6 Инструкция работы с функционалом"
           ],
-          "chunk_type": "faq"
+          "chunk_type": "text"
+        },
+        {
+          "chunk_id": "8b97f1b2-6bb6-581e-adf7-1681f22be501",
+          "score": 0.35678,
+          "doc_id": "funkcional-nye-vozmojnosti-raboty-s-bars-ofisom",
+          "section": [
+            "2 Работа с документами БО",
+            "2.1 Инструменты поиска данных",
+            "2.1.1 Редактор фильтров"
+          ],
+          "chunk_type": "screenshot"
         }
       ]
     }

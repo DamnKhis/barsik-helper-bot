@@ -5,6 +5,7 @@ on:
     branches: [main, master, feature/bars-kb, tg-bot, devops]
     paths:
       - "bars-kb/docs/source/**"
+      - "bars-kb/docs/support_answers/**"
       # Editing this workflow also runs it: install, secret check and the
       # "documents unchanged" path can be verified without touching the docs.
       - ".github/workflows/update-kb.yml"
@@ -68,4 +69,8 @@ jobs:
           GIT_AUTHOR_EMAIL: bars-kb-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: bars-kb-bot
           GIT_COMMITTER_EMAIL: bars-kb-bot@users.noreply.github.com
-        run: bars-kb sync --source docs/source --publish --keep 2 --eval
+        run: >-
+          bars-kb sync
+          --source docs/source
+          --support-source docs/support_answers
+          --publish --keep 2 --eval

@@ -53,6 +53,9 @@ class Document:
     sections: list[Section] = field(default_factory=list)
     page_count: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Откуда документ: "doc" — исходная документация, "support" — решённое
+    # обращение поддержки (папка support_answers).
+    kind: str = "doc"
 
     @property
     def text(self) -> str:

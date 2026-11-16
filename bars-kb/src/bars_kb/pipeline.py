@@ -6,6 +6,7 @@ import json
 import logging
 import shutil
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,64 @@ def iter_sources(path: Path) -> list[Path]:
     if path.is_file():
         return [path]
     return sorted(p for p in path.rglob("*") if p.suffix.lower() in SUPPORTED)
+
+
+@dataclass(frozen=True)
+class SourceFile:
+    """Файл-источник: сам путь, его корень и вид (doc/support)."""
+
+    path: Path
+    root: Path
+    kind: str = "doc"
+
+    @property
+    def key(self) -> str:
+        """Ключ для digest: ``doc/source/...`` или ``support/support_answers/...``."""
+        try:
+            relative = self.path.resolve().relative_to(self.root.resolve()).as_posix()
+        except ValueError:
+            relative = self.path.name
+        return f"{self.kind}/{self.root.name}/{relative}"
+
+
+def collect_sources(
+    settings: Settings,
+    sources: list[tuple[Path, str]] | None = None,
+) -> list[SourceFile]:
+    """Собрать файлы всех источников: документация + решённые обращения.
+
+    Отсутствующая папка не ошибка: набор тикетов может быть ещё не создан.
+    """
+    collected: list[SourceFile] = []
+    if isinstance(sources, (str, Path)):  # одиночная папка — как было раньше
+        sources = [(Path(sources), "doc")]
+    for root, kind in sources if sources is not None else settings.source_roots():
+        root = Path(root)
+        if not root.exists():
+            logger.debug("source folder is missing, skipping: %s (%s)", root, kind)
+            continue
+        for path in iter_sources(root):
+            collected.append(SourceFile(path=path, root=root if root.is_dir() else root.parent, kind=kind))
+    return collected
+
+
+def fingerprint_sources(files: list[SourceFile]) -> tuple[str, list[dict]]:
+    """Digest по всем источникам сразу (kind + путь + содержимое)."""
+    records: list[dict] = []
+    for entry in files:
+        records.append(
+            {
+                "path": entry.key,
+                "kind": entry.kind,
+                "sha256": file_sha256(entry.path),
+                "size": entry.path.stat().st_size,
+            }
+        )
+    records.sort(key=lambda item: item["path"])
+    digest = hashlib.sha256()
+    for record in records:
+        digest.update(f"{record['path']}\0{record['sha256']}\n".encode("utf-8"))
+    return digest.hexdigest(), records
 
 
 def file_sha256(path: Path) -> str:
@@ -64,6 +123,55 @@ def source_fingerprint(files: list[Path], root: Path | None = None) -> tuple[str
     return digest.hexdigest(), records
 
 
+def _support_golden(chunks: list[Chunk]) -> list[dict]:
+    """Контрольные вопросы из обращений: проверка, что тикет вообще ищется.
+
+    Вопрос берём из самого чанка (``raw_text`` начинается с «Вопрос: …»), поэтому
+    eval ловит регрессии: тикет пропал из сборки, сменился тип чанка, сломался
+    раздел. Это не замер качества формулировок, а сторож целостности.
+    """
+    items: list[dict] = []
+    for chunk in chunks:
+        if chunk.chunk_type != "support":
+            continue
+        question = ""
+        for line in chunk.raw_text.splitlines():
+            if line.startswith("Вопрос:"):
+                question = line[len("Вопрос:") :].strip()
+                break
+        if not question:
+            continue
+        section = chunk.section_path[-1] if chunk.section_path else ""
+        items.append(
+            {
+                "id": f"{chunk.doc_id}#{section or chunk.chunk_id[:8]}",
+                "type": "support",
+                "question": question,
+                "expected_doc_id": chunk.doc_id,
+                "expected_section_contains": [section] if section else [],
+                "expected_chunk_type": "support",
+            }
+        )
+    items.sort(key=lambda item: item["id"])
+    return items
+
+
+def _group_sources(records: list[dict]) -> list[dict]:
+    """Сводка по источникам для манифеста: сколько файлов в каждой папке."""
+    grouped: dict[str, dict] = {}
+    for record in records:
+        kind = str(record.get("kind") or "doc")
+        bucket = grouped.setdefault(kind, {"kind": kind, "digest": "", "files": []})
+        bucket["files"].append(record["path"])
+    for bucket in grouped.values():
+        digest = hashlib.sha256()
+        for record in records:
+            if str(record.get("kind") or "doc") == bucket["kind"]:
+                digest.update(f"{record['path']}\0{record['sha256']}\n".encode("utf-8"))
+        bucket["digest"] = digest.hexdigest()
+    return [grouped[key] for key in sorted(grouped)]
+
+
 def build_id_for(paths: list[Path], root: Path | None = None) -> str:
     digest, _ = source_fingerprint(paths, root)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -77,13 +185,23 @@ def ingest(
     keep: int = 2,
     evaluate: bool = False,
     eval_top_k: int = 8,
+    sources: list[tuple[Path, str]] | None = None,
 ) -> dict:
-    source = source or settings.inbox
-    files = iter_sources(source)
-    if not files:
-        raise RuntimeError(f"No supported documents found in {source}")
+    """Собрать сборку из всех источников.
 
-    source_digest, source_records = source_fingerprint(files, source)
+    ``source`` — совместимость: одна папка документации. ``sources`` — список
+    ``(папка, вид)``, где вид ``doc`` или ``support``; по умолчанию берутся
+    ``settings.source_roots()`` (документация и решённые обращения).
+    """
+    if sources is None:
+        sources = [(source, "doc")] if source is not None else settings.source_roots()
+    files = collect_sources(settings, sources)
+    if not files:
+        raise RuntimeError(
+            "No supported documents found in " + ", ".join(str(root) for root, _ in sources)
+        )
+
+    source_digest, source_records = fingerprint_sources(files)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     build_id = f"{stamp}_{source_digest[:8]}"
     collection = f"{settings.collection_prefix}_{build_id}"
@@ -99,10 +217,17 @@ def ingest(
     all_chunks: list[Chunk] = []
     document_records: list[dict] = []
 
-    for index, path in enumerate(files, start=1):
+    for index, entry in enumerate(files, start=1):
+        path = entry.path
         sha = file_sha256(path)
-        logger.info("[%d/%d] parse %s", index, len(files), path.name)
-        document = parse_document(path, settings.images_dir, version=sha[:16])
+        logger.info("[%d/%d] parse %s (%s)", index, len(files), path.name, entry.kind)
+        document = parse_document(
+            path,
+            settings.images_dir,
+            version=sha[:16],
+            kind=entry.kind,
+            support_mode=settings.support_index_mode,
+        )
         portable_path = _portable_path(settings, path)
         document.source_path = portable_path
         document.metadata["sha256"] = sha
@@ -117,6 +242,13 @@ def ingest(
                 f"https://github.com/{settings.github_repo}/blob/{settings.github_branch}/{relative}"
             )
         chunks = chunker.document_chunks(document)
+        if not chunks:
+            logger.warning(
+                "no chunks for %s (%s) — документ пропущен (для тикета это значит, что ответа поддержки в нём нет)",
+                path.name,
+                entry.kind,
+            )
+            continue
         for chunk in chunks:
             chunk.meta["build_id"] = build_id
         logger.info(
@@ -137,6 +269,7 @@ def ingest(
                 "page_count": document.page_count,
                 "section_count": len(document.sections),
                 "chunk_count": len(chunks),
+                "kind": entry.kind,
                 "github_url": document.metadata.get("github_url", ""),
             }
         )
@@ -158,6 +291,16 @@ def ingest(
     finally:
         store.close()
     write_json(settings.data_dir / "sparse_vocab.json", vocab)
+    support_golden = _support_golden(all_chunks)
+    golden_path = settings.data_dir / "support_golden.jsonl"
+    if support_golden:
+        golden_path.write_text(
+            "\n".join(json.dumps(item, ensure_ascii=False) for item in support_golden) + "\n",
+            encoding="utf-8",
+        )
+        logger.info("support golden set: %d вопросов из обращений", len(support_golden))
+    elif golden_path.exists():
+        golden_path.unlink()  # обращений больше нет — старые вопросы неактуальны
     exported = (
         export_build(
             settings,
@@ -180,6 +323,7 @@ def ingest(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "pipeline_version": PIPELINE_VERSION,
         "source": {"digest": source_digest, "files": source_records},
+        "sources": _group_sources(source_records),
         "embedding": {
             "provider": settings.embedding_provider if not settings.mock_embedding else "hash",
             "model": settings.qwen_embedding_model if not settings.mock_embedding else "hash-lexical",
@@ -196,8 +340,10 @@ def ingest(
         "counts": {
             "documents": len(documents),
             "chunks": len(all_chunks),
+            "support_documents": sum(1 for record in document_records if record.get("kind") == "support"),
             "images": sum(1 for c in all_chunks if c.image_path),
             "faq": sum(1 for c in all_chunks if c.chunk_type == "faq"),
+            "support": sum(1 for c in all_chunks if c.chunk_type == "support"),
             "tables": sum(1 for c in all_chunks if c.chunk_type == "table"),
             "diagrams": sum(1 for c in all_chunks if c.chunk_type == "diagram"),
             "screenshots": sum(1 for c in all_chunks if c.chunk_type == "screenshot"),
@@ -303,13 +449,13 @@ def export_build(
             "normalize": True,
         },
         "sparse": {"type": "bm25", "language": "ru"},
-        "payload_indexes": ["doc_id", "chunk_type", "version", "tags"],
+        "payload_indexes": ["doc_id", "chunk_type", "version", "tags", "doc_kind"],
         "snapshot": snapshot,
     }
     write_json(out / "collection_config.json", collection_config)
     write_json(out / "manifest.json", {"build_id": build_id, "collection": collection, "documents": document_records})
 
-    for name in ("golden_retrieval.jsonl", "sparse_vocab.json"):
+    for name in ("golden_retrieval.jsonl", "support_golden.jsonl", "sparse_vocab.json"):
         source = settings.data_dir / name
         if source.exists():
             shutil.copy2(source, out / name)
@@ -411,19 +557,23 @@ def _write_package_readme(
 | `build_info.json` | краткая информация о сборке |
 | `sparse_vocab.json` | словарь BM25; обязателен для sparse-поиска |
 | `golden_retrieval.jsonl` | контрольные вопросы для eval |
+| `support_golden.jsonl` | контрольные вопросы из решённых обращений |
 | `eval_report.json` | метрики hit@1/3/5, MRR и примеры выдачи (после `bars-kb eval`) |
 | `checksums.sha256` | SHA256 всех файлов пакета |
 
 ## Данные
 
-- документов: **{len(document_records)}**
+- документов: **{len(document_records)}** (из них решённых обращений поддержки:
+  **{sum(1 for record in document_records if record.get("kind") == "support")}**)
 - чанков: **{len(chunks)}**
 - text: {counts.get("text", 0)}, faq: {counts.get("faq", 0)}, table: {counts.get("table", 0)},
-  screenshot: {counts.get("screenshot", 0)}, diagram: {counts.get("diagram", 0)}
+  screenshot: {counts.get("screenshot", 0)}, diagram: {counts.get("diagram", 0)},
+  support: {counts.get("support", 0)} (пары «вопрос/ответ» из решённых обращений)
 
 Подробная схема payload — в `HANDOFF.md` проекта. Кратко: поиск идёт по `enriched_text`,
 ответ и цитата — по `raw_text`; `parent_text` даёт контекст раздела; `section_path` и
-`page` — для ссылки на источник.
+`page` — для ссылки на источник. Поле `doc_kind` отличает документацию (`doc`) от
+решённых обращений поддержки (`support`), `source_path` ведёт к исходному файлу.
 
 ## Восстановление
 

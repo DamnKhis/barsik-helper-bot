@@ -37,6 +37,40 @@ class AutoSyncConfigTest(unittest.TestCase):
         self.assertIn("--eval", command)
         self.assertNotIn("--allow-mock", command)
 
+    def test_command_includes_support_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            support = Path(tmp) / "support_answers"
+            support.mkdir()
+            with mock.patch.dict(os.environ, {"KB_AUTOSYNC_INTERVAL": "30"}, clear=False):
+                with mock.patch.object(kb_autosync, "support_dir", return_value=support):
+                    command = kb_autosync._command()
+            self.assertEqual(command[command.index("--interval") + 1], "30")
+            self.assertEqual(
+                Path(command[command.index("--support-source") + 1]),
+                support.resolve(),
+            )
+            self.assertNotIn("--no-support", command)
+
+    def test_command_skips_support_when_folder_missing(self) -> None:
+        missing = Path("/tmp") / "no-such-support-folder"
+        with mock.patch.object(kb_autosync, "support_dir", return_value=missing):
+            command = kb_autosync._command()
+        self.assertIn("--no-support", command)
+        self.assertNotIn("--support-source", command)
+
+    def test_support_dir_defaults_to_settings(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("KB_AUTOSYNC_SUPPORT", None)
+            self.assertEqual(
+                kb_autosync.support_dir(),
+                (kb_autosync.PROJECT_ROOT / "bars-kb" / "docs" / "support_answers").resolve(),
+            )
+        with mock.patch.dict(os.environ, {"KB_AUTOSYNC_SUPPORT": "bars-kb/docs/tickets"}, clear=False):
+            self.assertEqual(
+                kb_autosync.support_dir(),
+                (kb_autosync.PROJECT_ROOT / "bars-kb" / "docs" / "tickets").resolve(),
+            )
+
     def test_source_dir_defaults_and_resolves_relative(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("KB_AUTOSYNC_SOURCE", None)

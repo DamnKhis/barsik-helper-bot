@@ -398,6 +398,7 @@ class DistFlowTest(unittest.TestCase):
             data_dir=root / "data",
             dist_dir=root / "dist",
             inbox=source,
+            support_inbox=root / "docs" / "support_answers",  # в песочнице её нет
             llm_provider="mock",
             vision_provider="mock",
             embedding_provider="hash",

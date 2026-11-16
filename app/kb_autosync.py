@@ -11,6 +11,9 @@
 * ``KB_AUTOSYNC_SOURCE`` — папка с документами (по умолчанию
   ``bars-kb/docs/source``). Документы, загруженные админом через бота, тоже
   попадают сюда;
+* ``KB_AUTOSYNC_SUPPORT`` — папка с решёнными обращениями поддержки (по
+  умолчанию берётся ``SUPPORT_ANSWERS_DIR``, то есть
+  ``bars-kb/docs/support_answers``); изменения в ней тоже запускают пересборку;
 * ``KB_AUTOSYNC_EVAL=1`` — прогонять golden set после сборки;
 * ``KB_AUTOSYNC_ALLOW_MOCK=1`` — разрешить mock/hash-сборку (для отладки).
 """
@@ -24,6 +27,8 @@ import shutil
 import sys
 from pathlib import Path
 from uuid import uuid4
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +57,15 @@ def source_dir() -> Path:
     path = Path(raw).expanduser() if raw else KB_DIR / "docs" / "source"
     if not path.is_absolute():
         path = KB_DIR / path
+    return path.resolve()
+
+
+def support_dir() -> Path:
+    """Папка с решёнными обращениями поддержки (второй источник для сборки)."""
+    raw = os.getenv("KB_AUTOSYNC_SUPPORT", "").strip()
+    path = Path(raw).expanduser() if raw else Path(settings.support_answers_dir)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
     return path.resolve()
 
 
@@ -109,6 +123,11 @@ def _command() -> list[str]:
         "--source",
         str(source_dir()),
     ]
+    support = support_dir()
+    if support.is_dir():
+        cmd += ["--support-source", str(support)]
+    else:
+        cmd.append("--no-support")
     if _flag("KB_AUTOSYNC_ALLOW_MOCK"):
         cmd.append("--allow-mock")
     if _flag("KB_AUTOSYNC_EVAL"):

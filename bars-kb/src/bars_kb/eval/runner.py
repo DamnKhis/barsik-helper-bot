@@ -12,10 +12,19 @@ from ..store.qdrant_store import QdrantStore
 
 
 def run_eval(settings: Settings, golden: Path | None = None, top_k: int = 8) -> dict:
-    golden = golden or settings.data_dir / "golden_retrieval.jsonl"
+    """Прогнать контрольные вопросы.
+
+    По умолчанию берём оба набора: ``golden_retrieval.jsonl`` (документация) и
+    ``support_golden.jsonl`` (вопросы из решённых обращений, генерируется сборкой).
+    """
+    goldens = [golden] if golden else [
+        path
+        for path in (settings.data_dir / "golden_retrieval.jsonl", settings.data_dir / "support_golden.jsonl")
+        if path.exists()
+    ]
+    if not goldens:
+        raise RuntimeError(f"Golden set not found: {settings.data_dir / 'golden_retrieval.jsonl'}")
     manifest_path = settings.data_dir / "manifest.json"
-    if not golden.exists():
-        raise RuntimeError(f"Golden set not found: {golden}")
     if not manifest_path.exists():
         raise RuntimeError("No build manifest. Run ingest first.")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -25,14 +34,16 @@ def run_eval(settings: Settings, golden: Path | None = None, top_k: int = 8) -> 
     store = QdrantStore(settings, collection)
 
     questions = []
-    for line in golden.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            questions.append(json.loads(line))
+    for path in goldens:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                questions.append(json.loads(line))
 
     rows = []
     hits_at_1 = hits_at_3 = hits_at_5 = 0
     mrr_total = 0.0
+    by_type: dict[str, dict[str, float]] = {}
     try:
         for item in questions:
             query = item["question"]
@@ -53,6 +64,15 @@ def run_eval(settings: Settings, golden: Path | None = None, top_k: int = 8) -> 
                 if relevant_rank <= 5:
                     hits_at_5 += 1
                 mrr_total += 1.0 / relevant_rank
+            kind = str(item.get("type", "text"))
+            bucket = by_type.setdefault(kind, {"questions": 0, "hit@1": 0, "hit@3": 0})
+            bucket["questions"] += 1
+            if relevant_rank:
+                if relevant_rank == 1:
+                    bucket["hit@1"] += 1
+                if relevant_rank <= 3:
+                    bucket["hit@3"] += 1
+
             rows.append(
                 {
                     "id": item.get("id", query[:40]),
@@ -85,6 +105,14 @@ def run_eval(settings: Settings, golden: Path | None = None, top_k: int = 8) -> 
         "hit@3": round(hits_at_3 / total, 4) if total else 0.0,
         "hit@5": round(hits_at_5 / total, 4) if total else 0.0,
         "mrr": round(mrr_total / total, 4) if total else 0.0,
+        "by_type": {
+            kind: {
+                "questions": int(stats["questions"]),
+                "hit@1": round(stats["hit@1"] / stats["questions"], 4) if stats["questions"] else 0.0,
+                "hit@3": round(stats["hit@3"] / stats["questions"], 4) if stats["questions"] else 0.0,
+            }
+            for kind, stats in sorted(by_type.items())
+        },
         "rows": rows,
     }
     serialized = json.dumps(report, ensure_ascii=False, indent=2)
