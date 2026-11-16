@@ -129,10 +129,14 @@ async def _get_active_session(session: AsyncSession | None, user: User) -> JiraS
 
 
 def _image_note(image_path: Path | None) -> str:
-    """Строка про присланный скриншот для комментария в Jira."""
+    """Строка про присланный скриншот для комментария в Jira.
+
+    ``!файл.jpg!`` — wiki-разметка Jira: картинка рендерится прямо в комментарии,
+    потому что файл уже приложен к задаче через ``_attach_saved_image``.
+    """
     if image_path is None:
         return ""
-    return f"\n\n📎 Скриншот от пользователя: {image_path.name} (лежит в {image_path.parent})"
+    return f"\n\n📎 Скриншот от пользователя: !{image_path.name}!"
 
 
 async def _attach_saved_image(jira_client: JiraClient, issue_key: str, image_path: Path) -> None:

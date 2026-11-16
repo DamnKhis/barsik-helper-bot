@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -21,6 +22,10 @@ USEFUL_STATUS_KEYWORDS = ("полезн", "useful", "helpful")
 
 UNSAFE_FILENAME_RE = re.compile(r"[^\w.\-]+", re.UNICODE)
 ATTACHMENT_LINE_RE = re.compile(r"\(вложение:\s*([^)]+)\)")
+ATTACHMENT_BANG_RE = re.compile(r"!([^!\n]+)!")
+LEGACY_IMAGE_NOTE_RE = re.compile(
+    r"📎\s*Скриншот от пользователя:\s*([^\s(]+)(?:\s*\([^)]*\))?"
+)
 
 
 def is_useful_status(status_name: str) -> bool:
@@ -63,8 +68,34 @@ def _extract_pairs(comments: list[JiraComment]) -> list[tuple[str, str]]:
     return pairs
 
 
+def _transcript_text(comments: list[JiraComment]) -> str:
+    parts: list[str] = []
+    for comment in comments:
+        body = comment.body.strip()
+        if body.startswith(BOT_TRANSCRIPT_PREFIX):
+            text = body[len(BOT_TRANSCRIPT_PREFIX):].strip()
+            if text:
+                parts.append(text)
+    return "\n\n".join(parts)
+
+
+def _dialog_lines(comments: list[JiraComment]) -> list[tuple[str, str]]:
+    lines: list[tuple[str, str]] = []
+    for comment in comments:
+        body = comment.body.strip()
+        if not body or body.startswith(BOT_TRANSCRIPT_PREFIX):
+            continue
+        if body.startswith(BOT_USER_PREFIX):
+            lines.append(("Пользователь", _strip_user_marker(body)))
+        elif body.startswith("[BARS-"):
+            continue
+        else:
+            lines.append(("Поддержка", body))
+    return lines
+
+
 def _link_attachments(text: str, attachments: dict[str, tuple[str, bool]]) -> str:
-    """Заменить '(вложение: photo.jpg)' на markdown-ссылку или картинку."""
+    """Заменить упоминания вложений на markdown-ссылки или картинки."""
     if not attachments:
         return text
 
@@ -76,7 +107,9 @@ def _link_attachments(text: str, attachments: dict[str, tuple[str, bool]]) -> st
         url, is_image = target
         return f"![{name}]({url})" if is_image else f"[{name}]({url})"
 
-    return ATTACHMENT_LINE_RE.sub(repl, text)
+    text = ATTACHMENT_LINE_RE.sub(repl, text)
+    text = ATTACHMENT_BANG_RE.sub(repl, text)
+    return LEGACY_IMAGE_NOTE_RE.sub(repl, text)
 
 
 def render_support_answer(
@@ -87,9 +120,12 @@ def render_support_answer(
     attachments: dict[str, tuple[str, bool]] | None = None,
 ) -> str | None:
     pairs = _extract_pairs(comments)
-    if not pairs:
+    transcript = _transcript_text(comments)
+    dialog = _dialog_lines(comments)
+    if not pairs and not transcript and not dialog:
         return None
 
+    links = attachments or {}
     lines = [
         f"# {issue_key}: полезный ответ поддержки",
         "",
@@ -101,18 +137,44 @@ def render_support_answer(
         lines.append(f"- Ссылка: {issue_url}")
     lines.append("")
 
-    for index, (question, answer) in enumerate(pairs, 1):
+    if transcript:
         lines.extend(
             [
-                f"## Вопрос {index}",
-                _link_attachments(question, attachments or {}),
-                "",
-                f"## Ответ поддержки {index}",
-                _link_attachments(answer, attachments or {}),
+                "## История диалога с ИИ",
+                _link_attachments(transcript, links),
                 "",
             ]
         )
+
+    if pairs:
+        for index, (question, answer) in enumerate(pairs, 1):
+            lines.extend(
+                [
+                    f"## Вопрос {index}",
+                    _link_attachments(question, links),
+                    "",
+                    f"## Ответ поддержки {index}",
+                    _link_attachments(answer, links),
+                    "",
+                ]
+            )
+    else:
+        lines.append("## Диалог")
+        lines.append("")
+        for role, text in dialog:
+            lines.append(f"**{role}:** {_link_attachments(text, links)}")
+            lines.append("")
+
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _inherit_owner(path: Path, reference: Path) -> None:
+    """Сделать владельца как у каталога: контейнер пишет от root, а на хосте ждёт mi."""
+    try:
+        stat = reference.stat()
+        os.chown(path, stat.st_uid, stat.st_gid)
+    except OSError:
+        pass
 
 
 def _safe_name(value: str, fallback: str) -> str:
@@ -143,6 +205,7 @@ async def _download_attachments(
     folder = _safe_name(issue_key, "issue")
     attach_dir = target_dir / "attachments" / folder
     attach_dir.mkdir(parents=True, exist_ok=True)
+    _inherit_owner(attach_dir, target_dir)
 
     for attachment in attachments:
         filename = _safe_name(attachment.filename, f"file_{attachment.id}")
@@ -160,6 +223,7 @@ async def _download_attachments(
                 )
                 continue
         if destination.exists():
+            _inherit_owner(destination, target_dir)
             relative = f"attachments/{folder}/{filename}"
             mapping[attachment.filename] = (
                 relative,
@@ -176,14 +240,15 @@ async def save_support_answer(
     comments: list[JiraComment],
 ) -> Path | None:
     """Записать полезный ответ. None — если пар вопрос/ответ не нашлось."""
+    if render_support_answer(issue_key, issue_url, summary, comments) is None:
+        logger.info("В тикете %s нет содержимого для сохранения", issue_key)
+        return None
+
     target_dir = Path(settings.support_answers_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
     attachments = await _download_attachments(client, issue_key, target_dir)
     content = render_support_answer(issue_key, issue_url, summary, comments, attachments)
-    if content is None:
-        logger.info("В тикете %s нет пар вопрос/ответ, сохранять нечего", issue_key)
-        return None
 
     target = target_dir / safe_filename(issue_key)
     if target.exists() and target.read_text(encoding="utf-8") == content:
@@ -191,6 +256,7 @@ async def save_support_answer(
 
     tmp = target.with_suffix(".md.tmp")
     tmp.write_text(content, encoding="utf-8")
+    _inherit_owner(tmp, target_dir)
     tmp.replace(target)
     logger.info("Полезный ответ сохранён: %s", target)
     return target

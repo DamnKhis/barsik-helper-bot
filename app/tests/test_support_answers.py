@@ -74,9 +74,16 @@ def test_render_support_answer_builds_qa_pairs() -> None:
     assert "[BARS-USER" not in content
 
 
-def test_render_support_answer_none_without_answers() -> None:
+def test_render_support_answer_dialog_without_support_reply() -> None:
     comments = [_comment(2, f"{BOT_USER_PREFIX}42]\nИван:\nВопрос без ответа")]
-    assert render_support_answer("KAN-1", "", "", comments) is None
+    content = render_support_answer("KAN-1", "", "", comments)
+    assert content is not None
+    assert "## Диалог" in content
+    assert "**Пользователь:** Вопрос без ответа" in content
+
+
+def test_render_support_answer_none_without_any_content() -> None:
+    assert render_support_answer("KAN-1", "", "", []) is None
 
 
 def test_save_support_answer_writes_and_is_idempotent(tmp_path, monkeypatch) -> None:
@@ -139,3 +146,34 @@ def test_save_support_answer_downloads_attachment_and_embeds_image(tmp_path, mon
 def test_safe_filename_removes_unsafe_chars() -> None:
     assert safe_filename("KAN-12") == "KAN-12.md"
     assert safe_filename("../../etc/passwd") == "passwd.md"
+
+
+def test_save_support_answer_skips_empty_ticket(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.bot.services.support_answers.settings.support_answers_dir",
+        str(tmp_path / "support_answers"),
+    )
+
+    class TrackingClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def list_attachments(self, issue_key: str):
+            self.calls += 1
+            return []
+
+    client = TrackingClient()
+
+    result = asyncio.run(save_support_answer(client, "KAN-1", "", "", []))
+
+    assert result is None
+    assert client.calls == 0
+    assert not (tmp_path / "support_answers").exists()
+
+
+def test_render_support_answer_links_bang_attachment() -> None:
+    comments = [_comment(1, f"{BOT_USER_PREFIX}42]\nИван:\nСмотри !photo.jpg!")]
+    attachments = {"photo.jpg": ("attachments/KAN-1/photo.jpg", True)}
+    content = render_support_answer("KAN-1", "", "", comments, attachments)
+    assert content is not None
+    assert "![photo.jpg](attachments/KAN-1/photo.jpg)" in content
