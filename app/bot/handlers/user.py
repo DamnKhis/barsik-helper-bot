@@ -1,5 +1,6 @@
 import logging
 import mimetypes
+import re
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -50,6 +51,42 @@ router.callback_query.filter(RoleFilter("user"))
 # Лимит Telegram 4096 символов; оставляем запас под источник и подпись.
 TELEGRAM_CHUNK = 3500
 IMAGE_PLACEHOLDER = "«скриншот»"
+
+# Корни слов, по которым сразу предлагаем кнопку вызова оператора.
+# Проверяем по началу слова, поэтому формы («оператора», «человеку») тоже подходят.
+DEFAULT_OPERATOR_STEMS = (
+    "оператор",
+    "человек",
+    "люд",
+    "специалист",
+    "поддержк",
+    "менеджер",
+    "сотрудник",
+    "живой",
+    "позов",
+    "вызов",
+    "соедин",
+    "помощ",
+)
+
+
+def _operator_stems() -> tuple[str, ...]:
+    custom = [part.strip().lower() for part in settings.operator_keywords.split(",") if part.strip()]
+    return tuple(custom) if custom else DEFAULT_OPERATOR_STEMS
+
+
+def _is_operator_request(text: str) -> bool:
+    words = re.findall(r"[а-яёa-z]+", text.lower())
+    return any(word.startswith(stem) for word in words for stem in _operator_stems())
+
+
+async def _offer_operator(message: Message, state: FSMContext, question: str) -> None:
+    token = uuid4().hex[:12]
+    await state.update_data(operator_token=token, operator_question=question, operator_images=[])
+    await message.answer(
+        "Похоже, нужен живой оператор. Нажмите кнопку ниже.",
+        reply_markup=call_operator_keyboard(token),
+    )
 
 
 async def _send_long(message: Message, text: str, **kwargs) -> Message:
@@ -180,7 +217,41 @@ async def _forward_to_jira(
 
     await set_jira_last_comment(session, jira_session, comment_id)
     await redis_context.append_message(user.telegram_id, "user", question)
-    await message.answer("Сообщение передано в поддержку.")
+    await _ensure_wait_message(message, user, redis_context)
+
+
+async def _ensure_wait_message(
+    message: Message,
+    user: User,
+    redis_context: RedisContextService,
+) -> None:
+    """Одно временное «ищем ответ» на пользователя; удалим, когда будет ответ."""
+    getter = getattr(redis_context, "get_wait_message", None)
+    setter = getattr(redis_context, "set_wait_message", None)
+    if getter is None or setter is None:
+        return
+    if await getter(user.telegram_id):
+        return
+    sent = await message.answer("Ищем ответ на ваш вопрос, скоро ответим.")
+    await setter(user.telegram_id, sent.message_id)
+
+
+async def _remove_wait_message(
+    bot: Bot | None,
+    user: User,
+    redis_context: RedisContextService,
+) -> None:
+    """Удалить «ищем ответ» перед отправкой настоящего ответа."""
+    pop = getattr(redis_context, "pop_wait_message", None)
+    if pop is None:
+        return
+    wait_id = await pop(user.telegram_id)
+    if wait_id is None or bot is None or not hasattr(bot, "delete_message"):
+        return
+    try:
+        await bot.delete_message(chat_id=user.telegram_id, message_id=wait_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Не удалось удалить сообщение ожидания: %s", exc)
 
 
 async def _remove_operator_button(callback: CallbackQuery) -> None:
@@ -202,8 +273,7 @@ async def start(
     active = await _get_active_session(session, user) if user is not None else None
     if active is not None:
         await message.answer(
-            f"У вас открыто обращение {active.issue_key} в поддержке. "
-            "Сообщения из этого чата уходят в Jira.",
+            "У вас есть активное обращение в поддержке. Сообщения из этого чата уходят оператору.",
             reply_markup=user_dialog_menu(),
         )
         return
@@ -244,8 +314,7 @@ async def exit_dialog(
     active = await _get_active_session(session, user)
     if active is not None:
         await message.answer(
-            f"Обращение {active.issue_key} ещё открыто в Jira. "
-            "Диалог завершится, когда поддержка закроет задачу.",
+            "Обращение ещё открыто в поддержке. Диалог завершится, когда оператор закроет задачу.",
             reply_markup=user_dialog_menu(),
         )
         return
@@ -304,8 +373,14 @@ async def handle_question(
         )
         return
 
+    if question and _is_operator_request(question):
+        await _offer_operator(message, state, question)
+        return
+
     if image_path is not None:
         await bot.send_chat_action(message.chat.id, "typing")
+
+    await _ensure_wait_message(message, user, redis_context)
 
     context = await redis_context.get_context(user.telegram_id)
     started = time.perf_counter()
@@ -317,6 +392,7 @@ async def handle_question(
         bot_username=settings.bot_username or None,
     )
     response_ms = int((time.perf_counter() - started) * 1000)
+    await _remove_wait_message(bot, user, redis_context)
     await redis_context.append_pair(user.telegram_id, stored_question, result.answer)
 
     if result.need_operator:
@@ -427,16 +503,19 @@ async def call_operator(
     await _remove_operator_button(callback)
 
     if callback.message is not None:
-        await callback.message.answer(
-            f"Запрос передан в поддержку.\nЗадача Jira: {issue_key}\n{issue_url}",
+        handle = f" {settings.support_handle}" if settings.support_handle else ""
+        sent = await callback.message.answer(
+            f"Ваш запрос в обработке. Ищем ответ, скоро ответим.{handle}",
             reply_markup=user_dialog_menu(),
         )
-    await callback.answer("Обращение создано")
+        await redis_context.set_wait_message(user.telegram_id, sent.message_id)
+    await callback.answer("Запрос в обработке")
 
 
 @router.message()
 async def fallback(
     message: Message,
+    state: FSMContext,
     session: AsyncSession,
     user: User,
     redis_context: RedisContextService,
@@ -467,6 +546,9 @@ async def fallback(
             question or IMAGE_PLACEHOLDER,
             image_path,
         )
+        return
+    if question and _is_operator_request(question):
+        await _offer_operator(message, state, question)
         return
     await message.answer(
         "Нажмите «Задать вопрос», чтобы начать диалог (текст или скриншот).",

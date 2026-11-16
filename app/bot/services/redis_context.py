@@ -47,6 +47,10 @@ class RedisContextService:
     def _key(user_id: int) -> str:
         return str(user_id)
 
+    @staticmethod
+    def _wait_key(user_id: int) -> str:
+        return f"wait_msg:{user_id}"
+
     def _mark_redis_failed(self, exc: Exception) -> None:
         if not self._redis_failed:
             logger.warning("Redis недоступен, контекст хранится в памяти: %s", exc)
@@ -97,6 +101,42 @@ class RedisContextService:
 
     async def append_answer(self, user_id: int, answer: str) -> None:
         await self.append_message(user_id, "assistant", answer)
+
+    async def _set_raw(self, key: str, raw: str) -> None:
+        self._memory[key] = raw
+        if self._redis_failed:
+            return
+        try:
+            await self.redis.set(key, raw)
+        except Exception as exc:
+            self._mark_redis_failed(exc)
+
+    async def _delete_raw(self, key: str) -> None:
+        self._memory.pop(key, None)
+        if self._redis_failed:
+            return
+        try:
+            await self.redis.delete(key)
+        except Exception as exc:
+            self._mark_redis_failed(exc)
+
+    async def set_wait_message(self, user_id: int, message_id: int) -> None:
+        """Запомнить id сообщения «ищем ответ», чтобы удалить его при ответе."""
+        await self._set_raw(self._wait_key(user_id), str(message_id))
+
+    async def get_wait_message(self, user_id: int) -> int | None:
+        raw = await self._read_raw(self._wait_key(user_id))
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    async def pop_wait_message(self, user_id: int) -> int | None:
+        message_id = await self.get_wait_message(user_id)
+        await self._delete_raw(self._wait_key(user_id))
+        return message_id
 
     async def clear_context(self, user_id: int) -> None:
         key = self._key(user_id)

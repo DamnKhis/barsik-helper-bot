@@ -9,6 +9,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy.exc import DBAPIError
 
+from app.bot.keyboards.reply import user_main_menu
 from app.bot.services.jira import (
     BOT_COMMENT_PREFIX,
     JiraClient,
@@ -97,8 +98,8 @@ class JiraPoller:
                     await close_jira_session(session, jira_session)
                     await self._send(
                         jira_session.user_id,
-                        f"Обращение {jira_session.issue_key} больше не найдено в Jira. "
-                        "Диалог с поддержкой завершён.",
+                        "Обращение больше не найдено в поддержке. Диалог завершён.",
+                        reply_markup=user_main_menu(),
                     )
                 except Exception as exc:
                     logger.warning(
@@ -125,10 +126,11 @@ class JiraPoller:
 
         if is_done_state(state):
             await close_jira_session(session, jira_session)
+            await self._delete_wait_message(jira_session.user_id)
             await self._send(
                 jira_session.user_id,
-                f"Обращение {jira_session.issue_key} закрыто. "
-                "Диалог с поддержкой завершён — можно снова задать вопрос ИИ.",
+                "Обращение закрыто. Можете задать новый вопрос.",
+                reply_markup=user_main_menu(),
             )
 
     async def _save_useful_answer(self, jira_session: JiraSession, state) -> None:
@@ -153,13 +155,22 @@ class JiraPoller:
         if saved is not None:
             logger.info("Полезный ответ %s -> %s", jira_session.issue_key, saved)
 
+    async def _delete_wait_message(self, user_id: int) -> None:
+        wait_id = await self.redis_context.pop_wait_message(user_id)
+        if wait_id is None:
+            return
+        try:
+            await self.bot.delete_message(user_id, wait_id)
+        except TelegramBadRequest as exc:
+            logger.debug("Не удалось удалить сообщение ожидания: %s", exc)
+
     async def _deliver_comment(self, jira_session: JiraSession, comment: JiraComment) -> None:
         if self._is_own_comment(comment):
             return
         if not comment.body:
             return
-        text = f"Поддержка ({comment.author}):\n{comment.body}"
-        await self._send(jira_session.user_id, text)
+        await self._send(jira_session.user_id, comment.body)
+        await self._delete_wait_message(jira_session.user_id)
         await self.redis_context.append_message(
             jira_session.user_id,
             "assistant",
@@ -171,10 +182,10 @@ class JiraPoller:
         # Не фильтруем по email: поддержка может писать с того же аккаунта, что и бот.
         return comment.body.startswith(BOT_COMMENT_PREFIX)
 
-    async def _send(self, user_id: int, text: str) -> None:
+    async def _send(self, user_id: int, text: str, reply_markup=None) -> None:
         if len(text) > TELEGRAM_SAFE_LIMIT:
             text = text[: TELEGRAM_SAFE_LIMIT - 1] + "…"
         try:
-            await self.bot.send_message(user_id, text)
+            await self.bot.send_message(user_id, text, reply_markup=reply_markup)
         except TelegramBadRequest as exc:
             logger.warning("Не удалось отправить сообщение Jira пользователю %s: %s", user_id, exc)

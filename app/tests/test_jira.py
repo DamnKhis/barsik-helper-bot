@@ -169,7 +169,7 @@ def test_poller_delivers_support_comments_and_closes_session(session_maker) -> N
         def __init__(self) -> None:
             self.sent: list[tuple[int, str]] = []
 
-        async def send_message(self, user_id: int, text: str) -> None:
+        async def send_message(self, user_id: int, text: str, reply_markup=None) -> None:
             self.sent.append((user_id, text))
 
     class FakeRedisContext:
@@ -178,6 +178,9 @@ def test_poller_delivers_support_comments_and_closes_session(session_maker) -> N
 
         async def append_message(self, user_id: int, role: str, content: str) -> None:
             self.messages.append((user_id, role, content))
+
+        async def pop_wait_message(self, user_id: int):
+            return None
 
     async def prepare() -> None:
         async with db_module.async_session_maker() as session:
@@ -252,6 +255,7 @@ def test_call_operator_posts_ai_history_to_jira(monkeypatch) -> None:
 
         async def answer(self, text, reply_markup=None):
             self.answers.append(text)
+            return SimpleNamespace(message_id=999)
 
     class FakeCallback:
         data = "call_operator:tok"
@@ -276,6 +280,12 @@ def test_call_operator_posts_ai_history_to_jira(monkeypatch) -> None:
                 {"role": "user", "content": "Как оформить пропуск?"},
                 {"role": "assistant", "content": "Нужен паспорт."},
             ]
+
+        async def get_wait_message(self, user_id: int):
+            return None
+
+        async def set_wait_message(self, user_id: int, message_id: int) -> None:
+            return None
 
     session = SimpleNamespace()
     row = SimpleNamespace(user_id=42, issue_key="SUP-9", last_comment_id=0)
@@ -377,6 +387,8 @@ def test_handle_question_attaches_photo_to_jira(tmp_path, monkeypatch) -> None:
         get_context=AsyncMock(return_value=[]),
         append_pair=AsyncMock(),
         append_message=AsyncMock(),
+        get_wait_message=AsyncMock(return_value=None),
+        set_wait_message=AsyncMock(),
     )
     state = SimpleNamespace(
         clear=AsyncMock(),
@@ -443,11 +455,14 @@ def test_poller_saves_useful_answer_to_support_answers(session_maker, tmp_path, 
             ]
 
     class FakeBot:
-        async def send_message(self, user_id: int, text: str) -> None:
+        async def send_message(self, user_id: int, text: str, reply_markup=None) -> None:
             return None
 
     class FakeRedisContext:
         async def append_message(self, user_id: int, role: str, content: str) -> None:
+            return None
+
+        async def pop_wait_message(self, user_id: int):
             return None
 
     async def prepare() -> None:
@@ -474,3 +489,28 @@ def test_poller_saves_useful_answer_to_support_answers(session_maker, tmp_path, 
     content = saved.read_text(encoding="utf-8")
     assert "Как оформить пропуск?" in content
     assert "Нужен паспорт и заявка от руководителя." in content
+
+
+def test_poller_deletes_wait_message_after_support_reply() -> None:
+    class FakeBot:
+        def __init__(self) -> None:
+            self.deleted: list[tuple[int, int]] = []
+
+        async def delete_message(self, chat_id: int, message_id: int) -> None:
+            self.deleted.append((chat_id, message_id))
+
+    class FakeRedis:
+        async def pop_wait_message(self, user_id: int):
+            return 77
+
+    bot = FakeBot()
+    poller = jira_poller_module.JiraPoller(
+        bot=bot,
+        redis_context=FakeRedis(),
+        client=None,
+        interval=1,
+    )
+
+    asyncio.run(poller._delete_wait_message(42))
+
+    assert bot.deleted == [(42, 77)]

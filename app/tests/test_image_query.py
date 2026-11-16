@@ -341,6 +341,9 @@ def _redis() -> SimpleNamespace:
         get_context=AsyncMock(return_value=[]),
         append_pair=AsyncMock(),
         append_message=AsyncMock(),
+        get_wait_message=AsyncMock(return_value=None),
+        set_wait_message=AsyncMock(),
+        pop_wait_message=AsyncMock(return_value=None),
     )
 
 
@@ -422,3 +425,66 @@ def test_call_operator_mentions_images_in_transcript(monkeypatch) -> None:
     body = client.add_comment.await_args.args[1]
     assert "[BARS-TRANSCRIPT]" in body
     assert "shot.jpg" in body
+
+
+def test_handler_sends_wait_message_then_deletes_it(no_db) -> None:
+    answers: list[str] = []
+
+    class FakeMessage:
+        text = "Как оформить командировку?"
+        caption = None
+        photo = None
+        document = None
+
+        async def answer(self, text, reply_markup=None):
+            answers.append(text)
+            return SimpleNamespace(message_id=321)
+
+    class FakeBot:
+        def __init__(self) -> None:
+            self.deleted: list[tuple[int, int]] = []
+
+        async def send_chat_action(self, *args, **kwargs) -> None:
+            return None
+
+        async def delete_message(self, chat_id: int, message_id: int) -> None:
+            self.deleted.append((chat_id, message_id))
+
+    class FakeRedis:
+        def __init__(self) -> None:
+            self.wait_id: int | None = None
+
+        async def get_context(self, user_id):
+            return []
+
+        async def append_pair(self, user_id, question, answer):
+            return None
+
+        async def get_wait_message(self, user_id):
+            return self.wait_id
+
+        async def set_wait_message(self, user_id, message_id):
+            self.wait_id = message_id
+
+        async def pop_wait_message(self, user_id):
+            current, self.wait_id = self.wait_id, None
+            return current
+
+    class FakeAIService:
+        async def answer(self, user_id, question, context, image_path=None, bot_username=None):
+            return user_module.AIResult(answer="Готовый ответ", flag="ANSWER")
+
+    bot = FakeBot()
+    redis = FakeRedis()
+    user = SimpleNamespace(telegram_id=42)
+    state = SimpleNamespace(clear=AsyncMock(), update_data=AsyncMock(), get_data=AsyncMock(return_value={}))
+
+    asyncio.run(
+        user_module.handle_question(
+            FakeMessage(), state, None, user, redis, FakeAIService(), bot
+        )
+    )
+
+    assert answers[0] == "Ищем ответ на ваш вопрос, скоро ответим."
+    assert bot.deleted == [(42, 321)]
+    assert answers[-1] == "Готовый ответ"

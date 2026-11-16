@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     bot_token: str = ""
     bot_username: str = ""
     admin_ids: str = ""
+    # Кого показывать пользователю как оператора поддержки
+    support_handle: str = "@DanKhis"
+    # Дополнительные слова вызова оператора (через запятую); пусто = встроенный список
+    operator_keywords: str = ""
 
     # Хранилища
     database_url: str = "sqlite+aiosqlite:///./data/bars.db"

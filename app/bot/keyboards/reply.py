@@ -4,6 +4,7 @@ BTN_ASK = "Задать вопрос"
 BTN_EXIT_DIALOG = "Выйти из диалога"
 
 BTN_ADD_DOC = "Добавить доку"
+BTN_DELETE_DOC = "Удалить доку из БЗ"
 
 
 def _keyboard(*rows: tuple[str, ...]) -> ReplyKeyboardMarkup:
@@ -22,7 +23,8 @@ def user_dialog_menu() -> ReplyKeyboardMarkup:
 
 
 def admin_menu() -> ReplyKeyboardMarkup:
-    return _keyboard((BTN_ADD_DOC,))
+    # Кнопка удаления пока без обработчика: добавим позже.
+    return _keyboard((BTN_ADD_DOC,), (BTN_DELETE_DOC,))
 
 
 def menu_for_role(role: str) -> ReplyKeyboardMarkup:
