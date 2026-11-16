@@ -21,16 +21,11 @@ redis>=5.0
 openai>=1.40
 qdrant-client>=1.11
 pymupdf>=1.24
-pdfplumber>=0.11
-pytesseract>=0.3
 python-docx>=1.1
 python-dotenv>=1.0
 certifi>=2024.2.2
 numpy>=1.26
 fastembed>=0.3
-
-# Git-интеграция
-apscheduler>=3.10
 
 # Dev
 pytest>=8.0
